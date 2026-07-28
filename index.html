@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="yakesma-mark.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Ikuti kajian, kelas, webinar, dan program kebaikan YAKESMA — Lembaga Amil Zakat Nasional." />
+    <title>YAKESMA — Lembaga Amil Zakat Nasional</title>
+
+    <!-- React + Babel + Tailwind (semua via CDN — tanpa build, tanpa native tooling) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script>
+      // Paksa classic runtime → JSX dikompilasi ke React.createElement
+      // (bukan `import { jsx } from "react/jsx-runtime"` yang gagal di script non-module).
+      Babel.registerPreset("react-classic", {
+        presets: [[Babel.availablePresets.react, { runtime: "classic" }]],
+      });
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                DEFAULT: "#28a840", 50: "#edf8ef", 100: "#d3efd9", 200: "#a8dfb5",
+                300: "#74c98a", 400: "#45b866", 500: "#28a840", 600: "#1f9036",
+                700: "#1b752f", 800: "#185838", 900: "#123f28", dark: "#185838",
+              },
+              gold: { DEFAULT: "#f6b700", light: "#fbcf3a" },
+              orange: "#f58634",
+              ink: "#17251d",
+            },
+            fontFamily: {
+              sans: ['"Plus Jakarta Sans"', "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
+            },
+          },
+        },
+      };
+    </script>
+
+    <style>
+      html { scroll-behavior: smooth; }
+      body { background: #ffffff; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+      .app-bg {
+        background-image:
+          radial-gradient(55% 38% at 12% 0%, rgba(40,168,64,0.10), transparent 72%),
+          radial-gradient(50% 40% at 96% 3%, rgba(246,183,0,0.14), transparent 72%),
+          radial-gradient(42% 30% at 62% 0%, rgba(245,134,52,0.06), transparent 70%);
+      }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-thumb { background: #d8e6dc; border-radius: 999px; }
+      ::-webkit-scrollbar-thumb:hover { background: #b9d3bf; }
+      @keyframes fadeInUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+      .animate-in { animation: fadeInUp 0.35s ease both; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-presets="react-classic">
+      const { useState, useEffect, useMemo } = React;
+
+      /* ============================ KONFIGURASI BRAND ============================ */
+      const SITE = {
+        name: "YAKESMA",
+        tagline: "Lembaga Amil Zakat Nasional",
+        intro: "Ikuti kajian, kelas, webinar, dan program kebaikan YAKESMA. Perluas ilmu, perbanyak amal, raih keberkahan.",
+        whatsapp: "6281234567890",
+        email: "info@yakesma.org",
+        instagram: "yakesma.official",
+        website: "yakesma.org",
+        address: "Jl. Contoh Alamat No. 1, Jakarta Selatan",
+        logo: "yakesma-logo.png",
+        mark: "yakesma-mark.png",
+      };
+
+      const NAV = [
+        { href: "/", label: "Beranda", icon: "home" },
+        { href: "/event", label: "Event", icon: "calendar" },
+        { href: "/event-saya", label: "Event Saya", icon: "ticket" },
+        { href: "/akun", label: "Akun", icon: "user" },
+      ];
+
+      const CATEGORIES = ["Kajian", "Webinar", "Kelas", "Seminar", "Sosial", "Relawan"];
+
+      /* ============================ DATA EVENT ============================ */
+      const EVENTS = [
+        {
+          slug: "kajian-akbar-keajaiban-sedekah",
+          title: "Kajian Akbar: Keajaiban Sedekah",
+          category: "Kajian", speaker: "Ustadz Ahmad Zaki, Lc.",
+          location: "Masjid Raya Bintaro", city: "Jakarta", online: false,
+          date: "2026-08-10", timeStart: "08:00", timeEnd: "11:00",
+          price: 0, quota: 500, registered: 312,
+          gradient: ["#28a840", "#185838"], emoji: "🕌",
+          excerpt: "Menyelami keutamaan sedekah dan bagaimana ia membuka pintu rezeki.",
+          about: [
+            "Sedekah bukan mengurangi harta, melainkan mengundang keberkahan. Dalam kajian ini kita akan membahas dalil-dalil keutamaan sedekah serta kisah nyata bagaimana sedekah mengubah hidup seseorang.",
+            "Terbuka untuk umum, gratis, dan disediakan snack untuk 500 peserta pertama. Mari hadir dan ajak keluarga.",
+          ],
+          benefits: ["Materi kajian & e-sertifikat kehadiran", "Snack dan minuman", "Kesempatan tanya-jawab langsung"],
+          featured: true,
+        },
+        {
+          slug: "webinar-tunaikan-zakat-era-digital",
+          title: "Webinar: Tunaikan Zakat di Era Digital",
+          category: "Webinar", speaker: "Tim Edukasi YAKESMA",
+          location: "Online (Zoom)", city: "Online", online: true,
+          date: "2026-08-16", timeStart: "19:30", timeEnd: "21:00",
+          price: 0, quota: 1000, registered: 648,
+          gradient: ["#1f9036", "#0e6b4e"], emoji: "💻",
+          excerpt: "Cara mudah menghitung dan menunaikan zakat secara online, anti ribet.",
+          about: [
+            "Zakat kini bisa ditunaikan hanya dari genggaman. Webinar ini mengupas jenis-jenis zakat, cara menghitung nisab, hingga praktik menunaikan zakat secara digital yang aman dan amanah.",
+            "Cocok untuk Anda yang ingin memastikan zakatnya tepat hitung dan tepat sasaran.",
+          ],
+          benefits: ["Link Zoom & rekaman webinar", "Kalkulator zakat digital", "E-sertifikat peserta"],
+          featured: true,
+        },
+        {
+          slug: "kelas-tahsin-al-quran-intensif",
+          title: "Kelas Tahsin Al-Qur'an Intensif (4 Pekan)",
+          category: "Kelas", speaker: "Ustadzah Halimah, S.Pd.I.",
+          location: "Online (Zoom)", city: "Online", online: true,
+          date: "2026-08-23", timeStart: "09:00", timeEnd: "10:30",
+          price: 150000, quota: 40, registered: 28,
+          gradient: ["#f6b700", "#f58634"], emoji: "📖",
+          excerpt: "Perbaiki bacaan Al-Qur'an dari makhraj hingga tajwid dalam 4 pekan.",
+          about: [
+            "Program intensif 4 pekan (8 pertemuan) untuk memperbaiki bacaan Al-Qur'an. Dibimbing langsung oleh pengajar bersanad dengan kelompok kecil agar setiap peserta mendapat koreksi personal.",
+            "Kontribusi kelas digunakan untuk operasional pengajar dan program tahsin gratis bagi dhuafa.",
+          ],
+          benefits: ["8 sesi live via Zoom + rekaman", "Modul tahsin & lembar evaluasi", "Grup pendampingan dan e-sertifikat"],
+        },
+        {
+          slug: "seminar-fikih-zakat-wakaf-kontemporer",
+          title: "Seminar Fikih Zakat & Wakaf Kontemporer",
+          category: "Seminar", speaker: "Dr. H. Abdurrahman, M.A.",
+          location: "Hotel Grand Malabar", city: "Bandung", online: false,
+          date: "2026-09-06", timeStart: "08:00", timeEnd: "15:00",
+          price: 75000, quota: 200, registered: 96,
+          gradient: ["#185838", "#28a840"], emoji: "🎓",
+          excerpt: "Membahas isu-isu zakat & wakaf modern: saham, kripto, hingga wakaf uang.",
+          about: [
+            "Seminar sehari penuh membahas penerapan fikih zakat dan wakaf pada instrumen modern seperti zakat penghasilan, zakat saham, hingga wakaf uang dan wakaf produktif.",
+            "Menghadirkan pemateri ahli dan sesi diskusi panel. Termasuk makan siang dan coffee break.",
+          ],
+          benefits: ["Seminar kit & makan siang", "Sertifikat resmi (SKP tersedia)", "Materi presentasi para pemateri"],
+          featured: true,
+        },
+        {
+          slug: "santunan-wisata-1000-anak-yatim",
+          title: "Santunan & Wisata 1000 Anak Yatim",
+          category: "Sosial",
+          location: "Taman Impian Ceria", city: "Jakarta", online: false,
+          date: "2026-09-14", timeStart: "07:00", timeEnd: "16:00",
+          price: 100000, quota: 300, registered: 154,
+          gradient: ["#f58634", "#f6b700"], emoji: "🎈",
+          excerpt: "Berbagi kebahagiaan bersama 1000 anak yatim lewat santunan dan wisata.",
+          about: [
+            "Sehari penuh keceriaan bersama 1000 anak yatim: santunan, permainan edukatif, dan wisata bersama. Partisipasi Anda menjadi paket donasi untuk seorang anak yatim.",
+            "Anda dapat hadir langsung sebagai kakak pendamping atau berdonasi tanpa hadir. Setiap kontribusi Rp100.000 menanggung satu anak.",
+          ],
+          benefits: ["Menanggung 1 paket santunan anak yatim", "Kaos relawan (jika hadir)", "Laporan & dokumentasi kegiatan"],
+        },
+        {
+          slug: "relawan-distribusi-sembako-pelosok",
+          title: "Relawan Distribusi Sembako Pelosok",
+          category: "Relawan",
+          location: "YAKESMA Center", city: "Jakarta", online: false,
+          date: "2026-08-30", timeStart: "06:00", timeEnd: "selesai",
+          price: 0, quota: 60, registered: 41,
+          gradient: ["#28a840", "#1f9036"], emoji: "🤝",
+          excerpt: "Jadi relawan pengemasan dan distribusi sembako untuk keluarga prasejahtera.",
+          about: [
+            "Kami membuka pendaftaran relawan untuk membantu pengemasan dan penyaluran paket sembako ke wilayah pelosok. Tidak perlu pengalaman khusus — cukup niat baik dan semangat berbagi.",
+            "Konsumsi dan transport disediakan panitia. Kuota terbatas 60 relawan.",
+          ],
+          benefits: ["Sertifikat relawan YAKESMA", "Konsumsi & transport lokal", "Pengalaman & jejaring kebaikan"],
+        },
+        {
+          slug: "kelas-parenting-islami-generasi-qurani",
+          title: "Kelas Parenting Islami: Mendidik Generasi Qur'ani",
+          category: "Kelas", speaker: "Bunda Rahma Firdausi, M.Psi.",
+          location: "Online (Zoom)", city: "Online", online: true,
+          date: "2026-09-13", timeStart: "09:00", timeEnd: "11:00",
+          price: 50000, quota: 150, registered: 88,
+          gradient: ["#f6b700", "#28a840"], emoji: "👨‍👩‍👧",
+          excerpt: "Bekal mendidik anak dengan nilai Qur'ani sejak dini bagi para orang tua.",
+          about: [
+            "Kelas praktis bagi ayah dan bunda untuk menanamkan akhlak dan kecintaan pada Al-Qur'an sejak dini. Dibawakan oleh psikolog keluarga dengan pendekatan yang mudah diterapkan di rumah.",
+            "Termasuk sesi tanya-jawab dan lembar aktivitas keluarga.",
+          ],
+          benefits: ["Sesi live 2 jam + rekaman", "E-book panduan parenting Qur'ani", "E-sertifikat peserta"],
+        },
+        {
+          slug: "festival-anak-sholeh-bazar-umkm",
+          title: "Festival Anak Sholeh & Bazar UMKM",
+          category: "Sosial",
+          location: "Lapangan Merdeka", city: "Depok", online: false,
+          date: "2026-09-21", timeStart: "08:00", timeEnd: "16:00",
+          price: 0, quota: 800, registered: 226,
+          gradient: ["#f58634", "#185838"], emoji: "🎪",
+          excerpt: "Lomba anak, dongeng islami, dan bazar UMKM binaan YAKESMA.",
+          about: [
+            "Festival keluarga yang menghadirkan lomba anak sholeh, panggung dongeng islami, dan bazar produk UMKM binaan YAKESMA. Gratis dan terbuka untuk umum.",
+            "Ajak si kecil merasakan keseruan sambil mendukung UMKM mustahik naik kelas.",
+          ],
+          benefits: ["Akses seluruh area festival", "Ragam lomba & hadiah untuk anak", "Voucher belanja bazar"],
+        },
+        {
+          slug: "program-wakaf-quran-santunan-guru-ngaji",
+          title: "Program Wakaf Qur'an & Santunan Guru Ngaji",
+          category: "Sosial",
+          location: "Program Nasional", city: "Online", online: true,
+          date: "2026-10-05", timeStart: "08:00", timeEnd: "selesai",
+          price: 250000, quota: 500, registered: 132,
+          gradient: ["#1f9036", "#f6b700"], emoji: "🌙",
+          excerpt: "Wakafkan Al-Qur'an ke pelosok dan bantu kesejahteraan para guru ngaji.",
+          about: [
+            "Satu paket wakaf senilai Rp250.000 mencakup pengadaan mushaf Al-Qur'an untuk santri di pelosok serta santunan untuk para guru ngaji yang mengabdi tanpa lelah.",
+            "Program berjalan sepanjang tahun. Anda akan menerima laporan penyaluran secara berkala.",
+          ],
+          benefits: ["Sertifikat wakaf atas nama Anda", "Laporan penyaluran berkala", "Doa dari para penerima manfaat"],
+        },
+      ];
+
+      const getEvent = (slug) => EVENTS.find((e) => e.slug === slug);
+
+      /* ============================ HELPERS ============================ */
+      function formatRupiah(n) {
+        if (!n || n <= 0) return "Gratis";
+        return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n);
+      }
+      function formatTanggal(iso) {
+        const d = new Date(iso + "T00:00:00");
+        const s = new Intl.DateTimeFormat("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(d);
+        return s.replace("Minggu", "Ahad");
+      }
+      function formatWaktu(a, b) {
+        if (!a) return "Waktu menyusul";
+        return b ? a + " – " + b + " WIB" : a + " WIB";
+      }
+      function tanggalBadge(iso) {
+        const d = new Date(iso + "T00:00:00");
+        const day = String(d.getDate()).padStart(2, "0");
+        const month = new Intl.DateTimeFormat("id-ID", { month: "short" }).format(d).toUpperCase().replace(".", "");
+        return { day, month };
+      }
+
+      /* ============================ STORAGE (localStorage) ============================ */
+      const REG_KEY = "yakesma_registrations_v1";
+      const ACC_KEY = "yakesma_account_v1";
+      function safeParse(raw, fb) { try { return raw ? JSON.parse(raw) : fb; } catch { return fb; } }
+      function getRegistrations() {
+        const list = safeParse(localStorage.getItem(REG_KEY), []);
+        return list.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      }
+      function saveRegistration(reg) {
+        const list = safeParse(localStorage.getItem(REG_KEY), []);
+        list.push(reg);
+        localStorage.setItem(REG_KEY, JSON.stringify(list));
+      }
+      function removeRegistration(id) {
+        const list = safeParse(localStorage.getItem(REG_KEY), []);
+        localStorage.setItem(REG_KEY, JSON.stringify(list.filter((r) => r.id !== id)));
+      }
+      function getAccount() { return safeParse(localStorage.getItem(ACC_KEY), null); }
+      function saveAccount(acc) { localStorage.setItem(ACC_KEY, JSON.stringify(acc)); }
+      function makeTicketCode() { return "YKS-" + Math.random().toString(36).slice(2, 8).toUpperCase(); }
+      function makeId() { return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7); }
+
+      /* ============================ ROUTER (hash) ============================ */
+      function parseHash() {
+        const raw = (location.hash || "").replace(/^#/, "") || "/";
+        const [path, query = ""] = raw.split("?");
+        return { path: path || "/", params: new URLSearchParams(query) };
+      }
+      function useRoute() {
+        const [route, setRoute] = useState(parseHash());
+        useEffect(() => {
+          const on = () => { setRoute(parseHash()); window.scrollTo(0, 0); };
+          window.addEventListener("hashchange", on);
+          return () => window.removeEventListener("hashchange", on);
+        }, []);
+        return route;
+      }
+      const navigate = (to) => { location.hash = to; };
+      function Link({ to, className, children, ...rest }) {
+        return <a href={"#" + to} className={className} {...rest}>{children}</a>;
+      }
+
+      /* ============================ IKON ============================ */
+      function SIcon({ children, strokeWidth = 1.8, className }) {
+        return (
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+            strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+            {children}
+          </svg>
+        );
+      }
+      const IconHome = (p) => <SIcon {...p}><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /><path d="M9.5 21v-6h5v6" /></SIcon>;
+      const IconCalendar = (p) => <SIcon {...p}><rect x="3" y="4.5" width="18" height="16" rx="2.5" /><path d="M3 9h18M8 3v3M16 3v3" /></SIcon>;
+      const IconTicket = (p) => <SIcon {...p}><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h13A1.5 1.5 0 0 1 20 7.5V10a2 2 0 0 0 0 4v2.5A1.5 1.5 0 0 1 18.5 18h-13A1.5 1.5 0 0 1 4 16.5V14a2 2 0 0 0 0-4Z" /><path d="M14 6v12" strokeDasharray="1.5 2.5" /></SIcon>;
+      const IconUser = (p) => <SIcon {...p}><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6" /></SIcon>;
+      const IconMapPin = (p) => <SIcon {...p}><path d="M12 21s7-5.2 7-11a7 7 0 1 0-14 0c0 5.8 7 11 7 11Z" /><circle cx="12" cy="10" r="2.6" /></SIcon>;
+      const IconClock = (p) => <SIcon {...p}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></SIcon>;
+      const IconUsers = (p) => <SIcon {...p}><circle cx="9" cy="8" r="3.2" /><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" /><path d="M16 5.5a3 3 0 0 1 0 5.6M17 14c2.4.3 4 2.2 4 5" /></SIcon>;
+      const IconCheck = (p) => <SIcon {...p}><path d="m5 12.5 4.5 4.5L19 7" /></SIcon>;
+      const IconCheckCircle = (p) => <SIcon {...p}><circle cx="12" cy="12" r="9" /><path d="m8.5 12.5 2.5 2.5 4.5-5" /></SIcon>;
+      const IconArrowLeft = (p) => <SIcon {...p}><path d="M15 5l-7 7 7 7" /></SIcon>;
+      const IconChevronRight = (p) => <SIcon {...p}><path d="m9 5 7 7-7 7" /></SIcon>;
+      const IconSearch = (p) => <SIcon {...p}><circle cx="11" cy="11" r="6.5" /><path d="m20 20-3.5-3.5" /></SIcon>;
+      const IconTrash = (p) => <SIcon {...p}><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" /></SIcon>;
+      const IconInstagram = (p) => <SIcon {...p}><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><path d="M17.5 6.5h.01" /></SIcon>;
+      const IconWhatsApp = ({ className }) => (
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" className={className} aria-hidden="true">
+          <path d="M12 2a10 10 0 0 0-8.6 15.06L2 22l5.06-1.33A10 10 0 1 0 12 2Zm0 18.13a8.1 8.1 0 0 1-4.13-1.13l-.3-.18-3 .79.8-2.93-.19-.3A8.13 8.13 0 1 1 12 20.13Zm4.47-6.1c-.24-.12-1.44-.71-1.66-.79s-.39-.12-.55.12-.63.79-.77.95-.28.18-.52.06a6.65 6.65 0 0 1-1.96-1.21 7.36 7.36 0 0 1-1.36-1.69c-.14-.24 0-.37.11-.49s.24-.28.37-.42a1.62 1.62 0 0 0 .24-.41.45.45 0 0 0 0-.42c-.06-.12-.55-1.32-.75-1.81s-.4-.41-.55-.42h-.47a.9.9 0 0 0-.65.3 2.75 2.75 0 0 0-.86 2.04 4.78 4.78 0 0 0 1 2.53 10.9 10.9 0 0 0 4.2 3.7c.59.26 1.05.41 1.4.52a3.38 3.38 0 0 0 1.55.1 2.53 2.53 0 0 0 1.66-1.17 2.06 2.06 0 0 0 .14-1.17c-.06-.1-.22-.16-.46-.28Z" />
+        </svg>
+      );
+
+      /* ============================ KOMPONEN ============================ */
+      function Container({ children, className = "" }) {
+        return <div className={"mx-auto w-full max-w-5xl px-4 sm:px-6 " + className}>{children}</div>;
+      }
+
+      function EventPoster({ event, className = "aspect-square", compact = false }) {
+        const { day, month } = tanggalBadge(event.date);
+        return (
+          <div className={"relative overflow-hidden rounded-2xl " + className}
+            style={{ backgroundImage: "linear-gradient(145deg," + event.gradient[0] + "," + event.gradient[1] + ")" }}>
+            <span className="pointer-events-none absolute -bottom-5 -right-3 select-none text-[7rem] leading-none opacity-15">{event.emoji}</span>
+            <div className="absolute inset-0" style={{ backgroundImage: "radial-gradient(70% 55% at 18% 8%, rgba(255,255,255,0.25), transparent 60%)" }} />
+            <div className="relative flex h-full flex-col justify-between p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-white/90">YAKESMA</span>
+                <span className="shrink-0 rounded-full bg-white/20 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-sm">{event.category}</span>
+              </div>
+              <div>
+                <h3 className={"font-extrabold leading-tight text-white drop-shadow-sm " + (compact ? "text-base sm:text-lg" : "text-lg sm:text-2xl")}>{event.title}</h3>
+                <div className="mt-3 inline-flex items-center gap-2 rounded-xl bg-white/95 px-3 py-1.5 text-brand-dark shadow-sm">
+                  <span className="text-xl font-extrabold leading-none">{day}</span>
+                  <span className="text-[11px] font-bold uppercase leading-tight tracking-wide">{month}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function EventCard({ event }) {
+        const free = event.price <= 0;
+        return (
+          <Link to={"/event/" + event.slug} className="group block">
+            <EventPoster event={event} compact className="aspect-square transition-transform duration-300 group-hover:-translate-y-1 group-hover:shadow-xl group-hover:shadow-brand/10" />
+            <div className="mt-3 px-0.5">
+              <h3 className="line-clamp-2 font-bold leading-snug text-brand-dark transition-colors group-hover:text-brand">{event.title}</h3>
+              <p className="mt-1.5 flex items-center gap-1.5 text-sm text-ink/60">
+                <IconMapPin className="size-4 shrink-0 text-brand" />
+                <span className="truncate">{event.online ? "Online" : event.location + ", " + event.city}</span>
+              </p>
+              <div className="mt-2 flex items-center justify-between">
+                <span className={free ? "rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-bold text-brand-700" : "text-sm font-extrabold text-brand-dark"}>{formatRupiah(event.price)}</span>
+                <span className="text-xs text-ink/45">{event.registered}/{event.quota} peserta</span>
+              </div>
+            </div>
+          </Link>
+        );
+      }
+
+      function EventBrowser({ events, initialCategory }) {
+        const [cat, setCat] = useState(initialCategory || "Semua");
+        const [q, setQ] = useState("");
+        const filtered = useMemo(() => {
+          const query = q.trim().toLowerCase();
+          return events
+            .filter((e) => cat === "Semua" || e.category === cat)
+            .filter((e) => !query || e.title.toLowerCase().includes(query) || e.location.toLowerCase().includes(query) || e.city.toLowerCase().includes(query) || e.category.toLowerCase().includes(query))
+            .sort((a, b) => a.date.localeCompare(b.date));
+        }, [events, cat, q]);
+        const chips = ["Semua", ...CATEGORIES];
+        return (
+          <div>
+            <div className="relative mb-4">
+              <IconSearch className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-ink/40" />
+              <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari event, lokasi, atau kategori…"
+                className="w-full rounded-2xl border border-brand-100 bg-white py-3 pl-11 pr-4 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20" />
+            </div>
+            <div className="-mx-4 mb-6 flex gap-2.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
+              {chips.map((c) => (
+                <button key={c} type="button" onClick={() => setCat(c)}
+                  className={"shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition " + (cat === c ? "bg-brand text-white shadow-sm shadow-brand/30" : "border border-brand-100 bg-white text-brand-dark hover:border-brand hover:bg-brand-50")}>{c}</button>
+              ))}
+            </div>
+            {filtered.length > 0 ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3">
+                {filtered.map((e) => <EventCard key={e.slug} event={e} />)}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-brand-200 bg-white/60 py-16 text-center">
+                <p className="text-4xl">🔍</p>
+                <p className="mt-3 font-semibold text-brand-dark">Event tidak ditemukan</p>
+                <p className="mt-1 text-sm text-ink/60">Coba kata kunci atau kategori lain.</p>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      function Field({ label, value, onChange, type = "text", placeholder }) {
+        return (
+          <div>
+            <label className="mb-1.5 block text-sm font-semibold text-brand-dark">{label}</label>
+            <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+              className="w-full rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20" />
+          </div>
+        );
+      }
+
+      function Barcode({ seed }) {
+        const bars = Array.from({ length: 42 }, (_, i) => {
+          const c = seed.charCodeAt(i % seed.length) + i * 7;
+          return { w: (c % 3) + 1, dark: c % 4 !== 0 };
+        });
+        return (
+          <div className="mt-3 flex h-9 items-stretch justify-center gap-[2px]">
+            {bars.map((b, i) => <span key={i} style={{ width: b.w + "px" }} className={b.dark ? "bg-brand-dark" : "bg-transparent"} />)}
+          </div>
+        );
+      }
+
+      function TicketRow({ label, value, strong }) {
+        return (
+          <div className="flex items-start justify-between gap-4">
+            <dt className="text-ink/55">{label}</dt>
+            <dd className={"text-right " + (strong ? "font-extrabold text-brand-dark" : "font-semibold text-brand-dark")}>{value}</dd>
+          </div>
+        );
+      }
+
+      function TicketCard({ reg, free }) {
+        return (
+          <div className="animate-in overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm">
+            <div className="bg-brand-50 px-5 py-5 text-center">
+              <IconCheckCircle className="mx-auto size-12 text-brand" />
+              <h3 className="mt-2 text-lg font-extrabold text-brand-dark">{free ? "Pendaftaran Berhasil!" : "Pesanan Diterima!"}</h3>
+              <p className="mt-1 text-sm text-ink/60">Tunjukkan kode ini saat registrasi ulang.</p>
+            </div>
+            <div className="px-5 py-5">
+              <div className="rounded-xl border border-dashed border-brand-200 p-4 text-center">
+                <p className="text-xs font-semibold uppercase tracking-widest text-ink/50">Kode Tiket</p>
+                <p className="mt-1 font-mono text-2xl font-extrabold tracking-widest text-brand-dark">{reg.code}</p>
+                <Barcode seed={reg.code} />
+              </div>
+              <dl className="mt-4 space-y-2 text-sm">
+                <TicketRow label="Event" value={reg.title} />
+                <TicketRow label="Tanggal" value={formatTanggal(reg.eventDate)} />
+                <TicketRow label="Lokasi" value={reg.location} />
+                <TicketRow label="Nama" value={reg.name} />
+                <TicketRow label={free ? "Peserta" : "Tiket"} value={String(reg.quantity)} />
+                {!free && <TicketRow label="Total" value={formatRupiah(reg.total)} strong />}
+              </dl>
+              <Link to="/event-saya" className="mt-5 flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Lihat di Event Saya</Link>
+              <Link to="/event" className="mt-2 flex w-full items-center justify-center rounded-xl border border-brand-100 px-4 py-3 text-sm font-semibold text-brand-dark transition hover:bg-brand-50">Daftar Event Lain</Link>
+            </div>
+          </div>
+        );
+      }
+
+      function RegistrationForm({ event }) {
+        const free = event.price <= 0;
+        const [name, setName] = useState("");
+        const [email, setEmail] = useState("");
+        const [phone, setPhone] = useState("");
+        const [qty, setQty] = useState(1);
+        const [error, setError] = useState("");
+        const [done, setDone] = useState(null);
+        const [already, setAlready] = useState(null);
+
+        useEffect(() => {
+          const acc = getAccount();
+          if (acc) { setName(acc.name); setEmail(acc.email); setPhone(acc.phone); }
+          const existing = getRegistrations().find((r) => r.slug === event.slug);
+          if (existing) setAlready(existing);
+        }, [event.slug]);
+
+        function handleSubmit(e) {
+          e.preventDefault();
+          if (!name.trim() || !email.trim() || !phone.trim()) { setError("Mohon lengkapi nama, email, dan nomor WhatsApp."); return; }
+          if (!/^\S+@\S+\.\S+$/.test(email)) { setError("Format email belum benar."); return; }
+          const reg = {
+            id: makeId(), slug: event.slug, title: event.title, category: event.category,
+            name: name.trim(), email: email.trim(), phone: phone.trim(),
+            quantity: qty, unitPrice: event.price, total: event.price * qty,
+            code: makeTicketCode(), eventDate: event.date,
+            location: event.online ? "Online" : event.location + ", " + event.city,
+            createdAt: new Date().toISOString(),
+          };
+          saveRegistration(reg);
+          saveAccount({ name: reg.name, email: reg.email, phone: reg.phone });
+          setDone(reg);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+
+        if (done) return <TicketCard reg={done} free={free} />;
+        if (already)
+          return (
+            <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+              <div className="flex items-center gap-2 text-brand-dark"><IconCheckCircle className="size-6 text-brand" /><p className="font-bold">Anda sudah terdaftar</p></div>
+              <p className="mt-2 text-sm text-ink/60">Kode tiket Anda: <span className="font-mono font-bold text-brand-dark">{already.code}</span></p>
+              <Link to="/event-saya" className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Lihat di Event Saya</Link>
+            </div>
+          );
+
+        return (
+          <form onSubmit={handleSubmit} className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-baseline justify-between">
+              <span className="text-sm font-semibold text-ink/60">Harga</span>
+              <span className="text-xl font-extrabold text-brand-dark">{formatRupiah(event.price)}</span>
+            </div>
+            <div className="space-y-3">
+              <Field label="Nama Lengkap" value={name} onChange={setName} placeholder="Nama sesuai identitas" />
+              <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="nama@email.com" />
+              <Field label="Nomor WhatsApp" type="tel" value={phone} onChange={setPhone} placeholder="08xxxxxxxxxx" />
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Jumlah {free ? "Peserta" : "Tiket"}</label>
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={() => setQty((q) => Math.max(1, q - 1))} className="size-10 rounded-xl border border-brand-100 text-lg font-bold text-brand-dark transition hover:bg-brand-50" aria-label="Kurangi">−</button>
+                  <span className="w-8 text-center text-lg font-bold text-brand-dark">{qty}</span>
+                  <button type="button" onClick={() => setQty((q) => Math.min(5, q + 1))} className="size-10 rounded-xl border border-brand-100 text-lg font-bold text-brand-dark transition hover:bg-brand-50" aria-label="Tambah">+</button>
+                </div>
+              </div>
+            </div>
+            {!free && (
+              <div className="mt-4 flex items-center justify-between border-t border-brand-50 pt-4">
+                <span className="text-sm font-semibold text-ink/60">Total</span>
+                <span className="text-xl font-extrabold text-brand-dark">{formatRupiah(event.price * qty)}</span>
+              </div>
+            )}
+            {error && <p className="mt-3 rounded-lg bg-orange/10 px-3 py-2 text-sm font-medium text-orange">{error}</p>}
+            <button type="submit" className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition hover:bg-brand-600">
+              <IconTicket className="size-5" />{free ? "Daftar Sekarang" : "Pesan Tiket"}
+            </button>
+            <p className="mt-3 text-center text-xs text-ink/45">{free ? "Pendaftaran gratis. Konfirmasi dikirim ke WhatsApp Anda." : "Pembayaran disimulasikan untuk demo — tidak ada transaksi nyata."}</p>
+          </form>
+        );
+      }
+
+      function AppHeader() {
+        return (
+          <header className="sticky top-0 z-40 border-b border-black/5 bg-white/85 backdrop-blur-md">
+            <div className="mx-auto flex h-16 max-w-5xl items-center justify-center px-4">
+              <Link to="/" aria-label={SITE.name} className="flex items-center">
+                <img src={SITE.logo} alt={SITE.name} className="h-8 w-auto sm:h-9" />
+              </Link>
+            </div>
+          </header>
+        );
+      }
+
+      function BottomNav({ path }) {
+        const ICONS = { home: IconHome, calendar: IconCalendar, ticket: IconTicket, user: IconUser };
+        return (
+          <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-black/5 bg-white/95 backdrop-blur-md">
+            <div className="mx-auto grid max-w-md grid-cols-4">
+              {NAV.map((item) => {
+                const Icon = ICONS[item.icon];
+                const active = item.href === "/" ? path === "/" : path === item.href || path.startsWith(item.href + "/");
+                return (
+                  <Link key={item.href} to={item.href} className="relative flex flex-col items-center gap-1 py-2.5">
+                    {active && <span className="absolute top-0 h-0.5 w-10 rounded-full bg-brand" />}
+                    <Icon className={active ? "size-6 text-brand" : "size-6 text-ink/45"} strokeWidth={active ? 2.1 : 1.8} />
+                    <span className={"text-[11px] font-medium " + (active ? "text-brand" : "text-ink/50")}>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
+        );
+      }
+
+      /* ============================ HALAMAN ============================ */
+      function SectionHeading({ title, action }) {
+        return (
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <h2 className="text-xl font-extrabold text-brand-dark sm:text-2xl">{title}</h2>
+            {action}
+          </div>
+        );
+      }
+      function Stat({ value, label }) {
+        return <div><div className="text-lg font-extrabold leading-none">{value}</div><div className="mt-1 text-xs text-white/75">{label}</div></div>;
+      }
+
+      function Home() {
+        const upcoming = [...EVENTS].sort((a, b) => a.date.localeCompare(b.date));
+        const terbaru = upcoming.slice(0, 6);
+        const totalPeserta = EVENTS.reduce((s, e) => s + e.registered, 0);
+        return (
+          <Container className="space-y-10">
+            <section className="animate-in relative overflow-hidden rounded-3xl p-6 text-white shadow-lg shadow-brand/15 sm:p-9" style={{ backgroundImage: "linear-gradient(135deg,#28a840,#185838)" }}>
+              <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: "radial-gradient(50% 60% at 85% 10%, rgba(246,183,0,0.35), transparent 60%), radial-gradient(45% 55% at 8% 100%, rgba(255,255,255,0.14), transparent 60%)" }} />
+              <div className="relative max-w-xl">
+                <p className="text-sm font-semibold text-white/85">Assalamu'alaikum 👋</p>
+                <h1 className="mt-1 text-2xl font-extrabold leading-tight sm:text-4xl">Selamat datang di {SITE.name}</h1>
+                <p className="mt-3 text-sm leading-relaxed text-white/90 sm:text-base">{SITE.intro}</p>
+                <div className="mt-6 flex flex-wrap items-center gap-3">
+                  <Link to="/event" className="inline-flex items-center gap-1.5 rounded-full bg-white px-5 py-2.5 text-sm font-bold text-brand-dark shadow-sm transition hover:bg-white/90">Lihat Semua Event<IconChevronRight className="size-4" /></Link>
+                  <a href={"https://wa.me/" + SITE.whatsapp} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-full border border-white/40 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"><IconWhatsApp className="size-4" />Hubungi Kami</a>
+                </div>
+                <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                  <Stat value={String(EVENTS.length)} label="Event aktif" />
+                  <Stat value={totalPeserta.toLocaleString("id-ID") + "+"} label="Peserta terdaftar" />
+                  <Stat value="Gratis & Berbayar" label="Pilihan program" />
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <SectionHeading title="Jelajahi Kategori" />
+              <div className="-mx-4 flex gap-2.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
+                {CATEGORIES.map((c) => (
+                  <Link key={c} to={"/event?kategori=" + encodeURIComponent(c)} className="shrink-0 rounded-full border border-brand-100 bg-white px-4 py-2 text-sm font-semibold text-brand-dark transition hover:border-brand hover:bg-brand-50">{c}</Link>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <SectionHeading title="Event Terbaru" action={<Link to="/event" className="inline-flex items-center gap-1 text-sm font-semibold text-brand hover:text-brand-dark">Lihat semua <IconChevronRight className="size-4" /></Link>} />
+              <div className="grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3">
+                {terbaru.map((e) => <EventCard key={e.slug} event={e} />)}
+              </div>
+            </section>
+          </Container>
+        );
+      }
+
+      function EventList({ kategori }) {
+        const initial = CATEGORIES.includes(kategori) ? kategori : undefined;
+        return (
+          <Container className="space-y-6">
+            <header>
+              <h1 className="text-2xl font-extrabold text-brand-dark sm:text-3xl">Semua Event</h1>
+              <p className="mt-1 text-sm text-ink/60">Temukan program kebaikan yang tepat untuk Anda dan keluarga.</p>
+            </header>
+            <EventBrowser key={initial || "semua"} events={EVENTS} initialCategory={initial} />
+          </Container>
+        );
+      }
+
+      function Fact({ icon: Icon, label, value }) {
+        return (
+          <div className="flex items-center gap-3 rounded-xl border border-brand-50 bg-white px-3.5 py-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand"><Icon className="size-5" /></span>
+            <div className="min-w-0"><p className="text-xs text-ink/50">{label}</p><p className="truncate text-sm font-bold text-brand-dark">{value}</p></div>
+          </div>
+        );
+      }
+      function Section({ title, children }) {
+        return <section><h2 className="mb-3 text-lg font-extrabold text-brand-dark">{title}</h2>{children}</section>;
+      }
+
+      function EventDetail({ slug }) {
+        const event = getEvent(slug);
+        if (!event) return <NotFound />;
+        const sisa = Math.max(0, event.quota - event.registered);
+        const pct = Math.min(100, Math.round((event.registered / event.quota) * 100));
+        return (
+          <Container className="space-y-5">
+            <Link to="/event" className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink/60 transition hover:text-brand-dark"><IconArrowLeft className="size-4" />Kembali ke Event</Link>
+            <div className="flex flex-col gap-6 lg:grid lg:grid-cols-3 lg:gap-8">
+              <div className="space-y-6 lg:col-span-2 lg:col-start-1 lg:row-start-1">
+                <EventPoster event={event} className="aspect-[16/10] shadow-lg shadow-brand/10 sm:aspect-[16/9]" />
+                <div>
+                  <span className="inline-block rounded-full bg-brand-50 px-3 py-1 text-xs font-bold text-brand-700">{event.category}</span>
+                  <h1 className="mt-3 text-2xl font-extrabold leading-tight text-brand-dark sm:text-3xl">{event.title}</h1>
+                  <p className="mt-2 text-ink/70">{event.excerpt}</p>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Fact icon={IconCalendar} label="Tanggal" value={formatTanggal(event.date)} />
+                  <Fact icon={IconClock} label="Waktu" value={formatWaktu(event.timeStart, event.timeEnd)} />
+                  <Fact icon={IconMapPin} label="Lokasi" value={event.online ? event.location : event.location + ", " + event.city} />
+                  <Fact icon={IconUsers} label="Kuota" value={event.registered + " dari " + event.quota + " terisi"} />
+                </div>
+              </div>
+
+              <aside className="space-y-4 lg:sticky lg:top-20 lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:self-start">
+                <RegistrationForm event={event} />
+                <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between text-sm"><span className="text-ink/60">Kuota terisi</span><span className="font-bold text-brand-dark">{event.registered}/{event.quota}</span></div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-brand-50"><div className="h-full rounded-full bg-brand" style={{ width: pct + "%" }} /></div>
+                  <p className="mt-2 text-xs text-ink/55">{sisa > 0 ? "Sisa " + sisa + " kursi tersedia" : "Kuota penuh"}</p>
+                </div>
+              </aside>
+
+              <div className="space-y-8 lg:col-span-2 lg:col-start-1 lg:row-start-2">
+                <Section title="Deskripsi">
+                  <div className="space-y-3 leading-relaxed text-ink/75">{event.about.map((p, i) => <p key={i}>{p}</p>)}</div>
+                </Section>
+                <Section title="Yang Anda Dapatkan">
+                  <ul className="space-y-2.5">
+                    {event.benefits.map((b, i) => (
+                      <li key={i} className="flex items-start gap-3">
+                        <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-brand text-white"><IconCheck className="size-3.5" strokeWidth={2.6} /></span>
+                        <span className="text-ink/75">{b}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+                {event.speaker && (
+                  <Section title="Pemateri">
+                    <div className="flex items-center gap-3 rounded-2xl border border-brand-50 bg-white p-4">
+                      <span className="grid size-12 place-items-center rounded-full bg-brand-50 text-brand"><IconUser className="size-6" /></span>
+                      <div><p className="font-bold text-brand-dark">{event.speaker}</p><p className="text-sm text-ink/55">Pemateri {event.category}</p></div>
+                    </div>
+                  </Section>
+                )}
+              </div>
+            </div>
+          </Container>
+        );
+      }
+
+      function EventSaya() {
+        const [regs, setRegs] = useState([]);
+        useEffect(() => { setRegs(getRegistrations()); }, []);
+        function batal(id) { removeRegistration(id); setRegs(getRegistrations()); }
+        return (
+          <Container className="space-y-6">
+            <header>
+              <h1 className="text-2xl font-extrabold text-brand-dark sm:text-3xl">Event Saya</h1>
+              <p className="mt-1 text-sm text-ink/60">Semua event yang telah Anda daftarkan tersimpan di sini.</p>
+            </header>
+            {regs.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-brand-200 bg-white/60 py-16 text-center">
+                <span className="mx-auto grid size-16 place-items-center rounded-2xl bg-brand-50 text-brand"><IconTicket className="size-8" /></span>
+                <p className="mt-4 font-bold text-brand-dark">Belum ada event</p>
+                <p className="mx-auto mt-1 max-w-xs text-sm text-ink/60">Anda belum mendaftar event apa pun. Yuk, ikuti program kebaikan YAKESMA.</p>
+                <Link to="/event" className="mt-5 inline-flex rounded-full bg-brand px-6 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Jelajahi Event</Link>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {regs.map((r) => {
+                  const free = r.unitPrice <= 0;
+                  return (
+                    <div key={r.id} className="animate-in overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm">
+                      <div className="flex items-stretch">
+                        <div className="flex w-24 shrink-0 flex-col items-center justify-center gap-1 bg-brand-50 px-2 py-4 text-center sm:w-28">
+                          <IconTicket className="size-5 text-brand" />
+                          <span className="font-mono text-[11px] font-bold tracking-wider text-brand-dark">{r.code}</span>
+                        </div>
+                        <div className="min-w-0 flex-1 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <span className="inline-block rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-bold text-brand-700">{r.category}</span>
+                              <h3 className="mt-1.5 truncate font-bold text-brand-dark">{r.title}</h3>
+                            </div>
+                            <span className="shrink-0 rounded-full bg-brand px-2.5 py-1 text-[11px] font-bold text-white">Terdaftar</span>
+                          </div>
+                          <div className="mt-2 space-y-1 text-sm text-ink/60">
+                            <p className="flex items-center gap-1.5"><IconCalendar className="size-4 text-brand" />{formatTanggal(r.eventDate)}</p>
+                            <p className="flex items-center gap-1.5"><IconMapPin className="size-4 text-brand" /><span className="truncate">{r.location}</span></p>
+                          </div>
+                          <div className="mt-3 flex items-center justify-between border-t border-brand-50 pt-3">
+                            <span className="text-sm">
+                              <span className="text-ink/55">{r.quantity} {free ? "peserta" : "tiket"}</span>
+                              {!free && <span className="ml-2 font-extrabold text-brand-dark">{formatRupiah(r.total)}</span>}
+                            </span>
+                            <div className="flex items-center gap-3">
+                              <Link to={"/event/" + r.slug} className="text-sm font-semibold text-brand hover:text-brand-dark">Detail</Link>
+                              <button type="button" onClick={() => batal(r.id)} className="inline-flex items-center gap-1 text-sm font-semibold text-orange hover:opacity-80"><IconTrash className="size-4" />Batal</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Container>
+        );
+      }
+
+      function Akun() {
+        const [name, setName] = useState("");
+        const [email, setEmail] = useState("");
+        const [phone, setPhone] = useState("");
+        const [count, setCount] = useState(0);
+        const [saved, setSaved] = useState(false);
+        useEffect(() => {
+          const acc = getAccount();
+          if (acc) { setName(acc.name); setEmail(acc.email); setPhone(acc.phone); }
+          setCount(getRegistrations().length);
+        }, []);
+        function handleSave(e) {
+          e.preventDefault();
+          saveAccount({ name: name.trim(), email: email.trim(), phone: phone.trim() });
+          setSaved(true); setTimeout(() => setSaved(false), 2200);
+        }
+        return (
+          <Container className="space-y-6">
+            <h1 className="text-2xl font-extrabold text-brand-dark sm:text-3xl">Akun</h1>
+            <section className="overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm">
+              <div className="flex items-center gap-4 p-5 text-white" style={{ backgroundImage: "linear-gradient(135deg,#28a840,#185838)" }}>
+                <span className="grid size-14 shrink-0 place-items-center rounded-full bg-white/20 backdrop-blur"><IconUser className="size-7" /></span>
+                <div className="min-w-0"><p className="truncate text-lg font-extrabold">{name || "Tamu"}</p><p className="text-sm text-white/80">{count} event terdaftar</p></div>
+              </div>
+              <form onSubmit={handleSave} className="space-y-3 p-5">
+                <Field label="Nama Lengkap" value={name} onChange={setName} placeholder="Nama Anda" />
+                <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="nama@email.com" />
+                <Field label="Nomor WhatsApp" type="tel" value={phone} onChange={setPhone} placeholder="08xxxxxxxxxx" />
+                <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">{saved ? <React.Fragment><IconCheckCircle className="size-5" /> Tersimpan</React.Fragment> : "Simpan Profil"}</button>
+                <p className="text-center text-xs text-ink/45">Data disimpan di perangkat Anda dan dipakai untuk mengisi form pendaftaran otomatis.</p>
+              </form>
+            </section>
+
+            <Link to="/event-saya" className="flex items-center gap-3 rounded-2xl border border-brand-100 bg-white p-4 shadow-sm transition hover:border-brand">
+              <span className="grid size-10 place-items-center rounded-xl bg-brand-50 text-brand"><IconTicket className="size-5" /></span>
+              <div className="flex-1"><p className="font-bold text-brand-dark">Event Saya</p><p className="text-sm text-ink/55">Lihat tiket & pendaftaran Anda</p></div>
+              <span className="text-brand">›</span>
+            </Link>
+
+            <section className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+              <h2 className="mb-3 font-extrabold text-brand-dark">Hubungi Kami</h2>
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                <a href={"https://wa.me/" + SITE.whatsapp} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 rounded-xl border border-brand-50 px-3.5 py-3 transition hover:bg-brand-50"><IconWhatsApp className="size-5 text-brand" /><span className="text-sm font-semibold text-brand-dark">WhatsApp</span></a>
+                <a href={"https://instagram.com/" + SITE.instagram} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 rounded-xl border border-brand-50 px-3.5 py-3 transition hover:bg-brand-50"><IconInstagram className="size-5 text-brand" /><span className="text-sm font-semibold text-brand-dark">@{SITE.instagram}</span></a>
+              </div>
+              <p className="mt-3 text-sm text-ink/55">{SITE.address}</p>
+            </section>
+
+            <section className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+              <h2 className="mb-2 font-extrabold text-brand-dark">Tentang Kami</h2>
+              <p className="text-sm leading-relaxed text-ink/70">{SITE.name} adalah {SITE.tagline} yang berkhidmat menghimpun dan menyalurkan zakat, infak, sedekah, serta wakaf secara amanah dan profesional. Melalui beragam kajian, kelas, dan program sosial, kami mengajak umat untuk terus belajar dan berbagi.</p>
+            </section>
+            <section className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+              <h2 className="mb-2 font-extrabold text-brand-dark">Kebijakan Privasi</h2>
+              <p className="text-sm leading-relaxed text-ink/70">Data pendaftaran yang Anda masukkan pada situs ini disimpan secara lokal di perangkat Anda dan digunakan semata untuk keperluan pendaftaran event. Kami tidak membagikan data Anda kepada pihak ketiga tanpa izin.</p>
+            </section>
+            <section className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+              <h2 className="mb-2 font-extrabold text-brand-dark">Syarat & Ketentuan</h2>
+              <p className="text-sm leading-relaxed text-ink/70">Dengan mendaftar, Anda menyetujui untuk hadir sesuai jadwal dan mematuhi tata tertib penyelenggara. Kuota event terbatas dan berlaku selama tempat masih tersedia.</p>
+            </section>
+
+            <footer className="pb-2 pt-2 text-center">
+              <img src={SITE.mark} alt={SITE.name} className="mx-auto h-9 w-auto opacity-90" />
+              <p className="mt-3 text-xs text-ink/45">© {new Date().getFullYear()} {SITE.name} — {SITE.tagline}</p>
+            </footer>
+          </Container>
+        );
+      }
+
+      function NotFound() {
+        return (
+          <Container className="py-20 text-center">
+            <p className="text-6xl">🧭</p>
+            <h1 className="mt-4 text-2xl font-extrabold text-brand-dark">Halaman tidak ditemukan</h1>
+            <p className="mx-auto mt-2 max-w-sm text-ink/60">Maaf, halaman yang Anda cari tidak tersedia atau telah dipindahkan.</p>
+            <Link to="/" className="mt-6 inline-flex rounded-full bg-brand px-6 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Kembali ke Beranda</Link>
+          </Container>
+        );
+      }
+
+      /* ============================ APP ============================ */
+      const TITLES = { "/": null, "/event": "Event", "/event-saya": "Event Saya", "/akun": "Akun" };
+      function App() {
+        const route = useRoute();
+        const seg = route.path.split("/").filter(Boolean);
+        let page, title;
+        if (route.path === "/") { page = <Home />; title = null; }
+        else if (route.path === "/event") { page = <EventList kategori={route.params.get("kategori")} />; title = "Event"; }
+        else if (seg[0] === "event" && seg[1]) { const ev = getEvent(seg[1]); page = <EventDetail slug={seg[1]} />; title = ev ? ev.title : "Event tidak ditemukan"; }
+        else if (route.path === "/event-saya") { page = <EventSaya />; title = "Event Saya"; }
+        else if (route.path === "/akun") { page = <Akun />; title = "Akun"; }
+        else { page = <NotFound />; title = "Halaman tidak ditemukan"; }
+
+        useEffect(() => {
+          document.title = title ? title + " · " + SITE.name : SITE.name + " — " + SITE.tagline;
+        }, [title]);
+
+        return (
+          <div className="app-bg flex min-h-screen flex-col font-sans text-ink">
+            <AppHeader />
+            <main className="flex-1 pb-24 pt-6 sm:pt-8">{page}</main>
+            <BottomNav path={route.path} />
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>
