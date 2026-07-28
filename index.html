@@ -20,6 +20,9 @@
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
 
+    <!-- Konten dikelola lewat admin (data.js = sumber tunggal; fallback ke bawaan) -->
+    <script src="data.js"></script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -68,8 +71,8 @@
     <script type="text/babel" data-presets="react-classic">
       const { useState, useEffect, useMemo } = React;
 
-      /* ============================ KONFIGURASI BRAND ============================ */
-      const SITE = {
+      /* ============================ KONFIGURASI BRAND (fallback bawaan) ============================ */
+      const _DEFAULT_SITE = {
         name: "YAKESMA",
         tagline: "Lembaga Amil Zakat Nasional",
         intro: "Ikuti kajian, kelas, webinar, dan program kebaikan YAKESMA. Perluas ilmu, perbanyak amal, raih keberkahan.",
@@ -89,10 +92,10 @@
         { href: "/akun", label: "Akun", icon: "user" },
       ];
 
-      const CATEGORIES = ["Kajian", "Webinar", "Kelas", "Seminar", "Sosial", "Relawan"];
+      const _DEFAULT_CATEGORIES = ["Kajian", "Webinar", "Kelas", "Seminar", "Sosial", "Relawan"];
 
-      /* ============================ DATA EVENT ============================ */
-      const EVENTS = [
+      /* ============================ DATA EVENT (fallback bawaan) ============================ */
+      const _DEFAULT_EVENTS = [
         {
           slug: "kajian-akbar-keajaiban-sedekah",
           title: "Kajian Akbar: Keajaiban Sedekah",
@@ -232,6 +235,31 @@
           benefits: ["Sertifikat wakaf atas nama Anda", "Laporan penyaluran berkala", "Doa dari para penerima manfaat"],
         },
       ];
+
+      /* ====================== RESOLUSI DATA (data.js / pratinjau admin) ====================== */
+      const _override = (function () {
+        try {
+          if (new URLSearchParams(location.search).get("preview") === "1") {
+            const w = JSON.parse(localStorage.getItem("yakesma_admin_data") || "null");
+            if (w) return w;
+          }
+        } catch (e) {}
+        return (typeof window !== "undefined" && window.YAKESMA_DATA) || null;
+      })();
+
+      const SITE = Object.assign({}, _DEFAULT_SITE, (_override && _override.site) || {});
+      SITE.colors = Object.assign(
+        { green: "#28a840", dark: "#185838", gold: "#f6b700", orange: "#f58634" },
+        SITE.colors || {}
+      );
+      const CATEGORIES =
+        _override && _override.categories && _override.categories.length
+          ? _override.categories
+          : _DEFAULT_CATEGORIES;
+      const EVENTS =
+        _override && _override.events && _override.events.length
+          ? _override.events
+          : _DEFAULT_EVENTS;
 
       const getEvent = (slug) => EVENTS.find((e) => e.slug === slug);
 
@@ -606,7 +634,7 @@
         const totalPeserta = EVENTS.reduce((s, e) => s + e.registered, 0);
         return (
           <Container className="space-y-10">
-            <section className="animate-in relative overflow-hidden rounded-3xl p-6 text-white shadow-lg shadow-brand/15 sm:p-9" style={{ backgroundImage: "linear-gradient(135deg,#28a840,#185838)" }}>
+            <section className="animate-in relative overflow-hidden rounded-3xl p-6 text-white shadow-lg shadow-brand/15 sm:p-9" style={{ backgroundImage: `linear-gradient(135deg,${SITE.colors.green},${SITE.colors.dark})` }}>
               <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: "radial-gradient(50% 60% at 85% 10%, rgba(246,183,0,0.35), transparent 60%), radial-gradient(45% 55% at 8% 100%, rgba(255,255,255,0.14), transparent 60%)" }} />
               <div className="relative max-w-xl">
                 <p className="text-sm font-semibold text-white/85">Assalamu'alaikum 👋</p>
@@ -810,7 +838,7 @@
           <Container className="space-y-6">
             <h1 className="text-2xl font-extrabold text-brand-dark sm:text-3xl">Akun</h1>
             <section className="overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm">
-              <div className="flex items-center gap-4 p-5 text-white" style={{ backgroundImage: "linear-gradient(135deg,#28a840,#185838)" }}>
+              <div className="flex items-center gap-4 p-5 text-white" style={{ backgroundImage: `linear-gradient(135deg,${SITE.colors.green},${SITE.colors.dark})` }}>
                 <span className="grid size-14 shrink-0 place-items-center rounded-full bg-white/20 backdrop-blur"><IconUser className="size-7" /></span>
                 <div className="min-w-0"><p className="truncate text-lg font-extrabold">{name || "Tamu"}</p><p className="text-sm text-white/80">{count} event terdaftar</p></div>
               </div>
@@ -895,6 +923,35 @@
           </div>
         );
       }
+
+      /* Terapkan warna brand dari data ke Tailwind (Play CDN) sebelum render */
+      (function applyBrandColors() {
+        try {
+          const c = SITE.colors;
+          if (window.tailwind && c) {
+            tailwind.config = {
+              theme: {
+                extend: {
+                  colors: {
+                    brand: {
+                      DEFAULT: c.green, 50: "#edf8ef", 100: "#d3efd9", 200: "#a8dfb5",
+                      300: "#74c98a", 400: "#45b866", 500: c.green, 600: "#1f9036",
+                      700: "#1b752f", 800: c.dark, 900: "#123f28", dark: c.dark,
+                    },
+                    gold: { DEFAULT: c.gold, light: "#fbcf3a" },
+                    orange: c.orange,
+                    ink: "#17251d",
+                  },
+                  fontFamily: {
+                    sans: ['"Plus Jakarta Sans"', "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
+                  },
+                },
+              },
+            };
+            if (tailwind.refresh) tailwind.refresh();
+          }
+        } catch (e) {}
+      })();
 
       ReactDOM.createRoot(document.getElementById("root")).render(<App />);
     </script>

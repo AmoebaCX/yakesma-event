@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="../yakesma-mark.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <title>Admin · YAKESMA</title>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script>
+      Babel.registerPreset("react-classic", {
+        presets: [[Babel.availablePresets.react, { runtime: "classic" }]],
+      });
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Muat konten saat ini sebagai bibit editor -->
+    <script src="../data.js"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                DEFAULT: "#28a840", 50: "#edf8ef", 100: "#d3efd9", 500: "#28a840",
+                600: "#1f9036", 700: "#1b752f", 800: "#185838", 900: "#123f28", dark: "#185838",
+              },
+              gold: "#f6b700", orange: "#f58634", ink: "#17251d",
+            },
+            fontFamily: { sans: ['"Plus Jakarta Sans"', "ui-sans-serif", "system-ui", "sans-serif"] },
+          },
+        },
+      };
+    </script>
+    <style>
+      body { background: #f6f8f7; -webkit-font-smoothing: antialiased; }
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-thumb { background: #d3ddd6; border-radius: 999px; }
+    </style>
+  </head>
+  <body class="font-sans text-ink">
+    <div id="root"></div>
+
+    <script type="text/babel" data-presets="react-classic">
+      const { useState, useEffect, useMemo, useRef } = React;
+
+      /* ============ KONFIG ============ */
+      const ADMIN_PASSCODE = "yakesma2026"; // ← ganti passcode di sini
+      const WORK_KEY = "yakesma_admin_data";
+      const UNLOCK_KEY = "yakesma_admin_unlocked";
+
+      const FALLBACK_CATEGORIES = ["Kajian", "Webinar", "Kelas", "Seminar", "Sosial", "Relawan"];
+      const EMOJIS = ["🕌","📖","🎓","🤝","🎈","💻","🌙","🎪","👨‍👩‍👧","✨","📿","🕋","💚","🎁","📣","🍲"];
+      const GRADIENTS = [
+        ["#28a840","#185838"],["#1f9036","#0e6b4e"],["#f6b700","#f58634"],
+        ["#185838","#28a840"],["#f58634","#f6b700"],["#28a840","#1f9036"],
+        ["#f6b700","#28a840"],["#f58634","#185838"],["#1f9036","#f6b700"],
+      ];
+
+      /* ============ HELPERS ============ */
+      const clone = (x) => JSON.parse(JSON.stringify(x));
+      function slugify(s) {
+        return (s || "").toString().toLowerCase()
+          .replace(/['"]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+      }
+      function formatRupiah(n) {
+        if (!n || n <= 0) return "Gratis";
+        return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(n);
+      }
+      function formatTanggal(iso) {
+        if (!iso) return "-";
+        const d = new Date(iso + "T00:00:00");
+        return new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric" }).format(d);
+      }
+      function download(name, text, type) {
+        const blob = new Blob([text], { type: type || "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = name; document.body.appendChild(a); a.click();
+        document.body.removeChild(a); URL.revokeObjectURL(url);
+      }
+      function emptyEvent() {
+        return {
+          slug: "", title: "", category: "Kajian", speaker: "",
+          location: "", city: "", online: false,
+          date: "", timeStart: "", timeEnd: "",
+          price: 0, quota: 100, registered: 0,
+          gradient: ["#28a840", "#185838"], emoji: "🕌",
+          excerpt: "", about: [""], benefits: [""], featured: false,
+        };
+      }
+      function loadWork() {
+        try { const w = JSON.parse(localStorage.getItem(WORK_KEY) || "null"); if (w && w.events) return w; } catch (e) {}
+        if (window.YAKESMA_DATA) return clone(window.YAKESMA_DATA);
+        return { site: {}, categories: FALLBACK_CATEGORIES.slice(), events: [] };
+      }
+      function saveWork(d) { localStorage.setItem(WORK_KEY, JSON.stringify(d)); }
+      function generateDataJs(d) {
+        return "/* Konten YAKESMA — dihasilkan oleh halaman admin. Terbitkan dengan mengganti file data.js lalu push. */\n" +
+          "window.YAKESMA_DATA = " + JSON.stringify(d, null, 2) + ";\n";
+      }
+
+      /* ============ FIELD UI ============ */
+      function Label({ children }) { return <label className="mb-1 block text-sm font-semibold text-ink/80">{children}</label>; }
+      const inputCls = "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20";
+
+      function Text({ label, value, onChange, placeholder, type }) {
+        return <div><Label>{label}</Label><input type={type || "text"} className={inputCls} value={value == null ? "" : value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} /></div>;
+      }
+      function Num({ label, value, onChange, min, hint }) {
+        return <div><Label>{label}</Label><input type="number" min={min == null ? 0 : min} className={inputCls} value={value == null ? "" : value} onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))} />{hint && <p className="mt-1 text-xs text-ink/45">{hint}</p>}</div>;
+      }
+      function Area({ label, value, onChange, rows, hint }) {
+        return <div><Label>{label}</Label><textarea rows={rows || 3} className={inputCls} value={value == null ? "" : value} onChange={(e) => onChange(e.target.value)} />{hint && <p className="mt-1 text-xs text-ink/45">{hint}</p>}</div>;
+      }
+      function Select({ label, value, onChange, options }) {
+        return <div><Label>{label}</Label><select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}>{options.map((o) => <option key={o} value={o}>{o}</option>)}</select></div>;
+      }
+      function Toggle({ label, checked, onChange }) {
+        return (
+          <button type="button" onClick={() => onChange(!checked)} className="flex items-center gap-3">
+            <span className={"relative h-6 w-11 rounded-full transition " + (checked ? "bg-brand" : "bg-slate-300")}>
+              <span className={"absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition " + (checked ? "left-[22px]" : "left-0.5")} />
+            </span>
+            <span className="text-sm font-semibold text-ink/80">{label}</span>
+          </button>
+        );
+      }
+
+      /* ============ EVENT EDITOR ============ */
+      function EventEditor({ initial, categories, onSave, onCancel, existingSlugs }) {
+        const [ev, setEv] = useState(clone(initial));
+        const [slugTouched, setSlugTouched] = useState(!!initial.slug);
+        const set = (k, v) => setEv((p) => ({ ...p, [k]: v }));
+
+        function setTitle(v) {
+          setEv((p) => ({ ...p, title: v, slug: slugTouched ? p.slug : slugify(v) }));
+        }
+        function save() {
+          const e = clone(ev);
+          e.title = (e.title || "").trim();
+          if (!e.title) { alert("Judul wajib diisi."); return; }
+          e.slug = slugify(e.slug || e.title);
+          if (existingSlugs.filter((s) => s === e.slug).length > 0) {
+            // pastikan unik
+            let base = e.slug, i = 2;
+            while (existingSlugs.indexOf(e.slug) !== -1) { e.slug = base + "-" + i; i++; }
+          }
+          e.price = Number(e.price) || 0;
+          e.quota = Number(e.quota) || 0;
+          e.registered = Number(e.registered) || 0;
+          e.about = (typeof e.about === "string" ? e.about.split("\n") : e.about).map((x) => x.trim()).filter(Boolean);
+          e.benefits = (typeof e.benefits === "string" ? e.benefits.split("\n") : e.benefits).map((x) => x.trim()).filter(Boolean);
+          if (!e.about.length) e.about = [""];
+          if (!e.benefits.length) e.benefits = [""];
+          onSave(e);
+        }
+
+        const aboutText = Array.isArray(ev.about) ? ev.about.join("\n") : ev.about;
+        const benefitsText = Array.isArray(ev.benefits) ? ev.benefits.join("\n") : ev.benefits;
+
+        return (
+          <div className="space-y-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-extrabold text-brand-dark">{initial.slug ? "Edit Event" : "Tambah Event"}</h2>
+              <button onClick={onCancel} className="text-sm font-semibold text-ink/50 hover:text-ink">Batal</button>
+            </div>
+
+            {/* Poster preview */}
+            <div className="overflow-hidden rounded-xl" style={{ aspectRatio: "16/7", backgroundImage: "linear-gradient(145deg," + ev.gradient[0] + "," + ev.gradient[1] + ")" }}>
+              <div className="flex h-full flex-col justify-between p-4 text-white">
+                <div className="flex justify-between"><span className="text-[11px] font-extrabold uppercase tracking-widest opacity-90">YAKESMA</span><span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold">{ev.category}</span></div>
+                <div className="text-xl font-extrabold drop-shadow">{ev.title || "Judul Event"} <span className="text-2xl">{ev.emoji}</span></div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2"><Text label="Judul Event" value={ev.title} onChange={setTitle} placeholder="mis. Kajian Akbar: Keajaiban Sedekah" /></div>
+              <div className="sm:col-span-2">
+                <Label>Slug (URL)</Label>
+                <input className={inputCls} value={ev.slug} onChange={(e) => { setSlugTouched(true); set("slug", e.target.value); }} placeholder="otomatis-dari-judul" />
+                <p className="mt-1 text-xs text-ink/45">Alamat: <code>#/event/{ev.slug || "..."}</code></p>
+              </div>
+              <Select label="Kategori" value={ev.category} onChange={(v) => set("category", v)} options={categories} />
+              <Text label="Pemateri (opsional)" value={ev.speaker} onChange={(v) => set("speaker", v)} placeholder="mis. Ustadz Ahmad Zaki" />
+              <Text label="Nama Lokasi" value={ev.location} onChange={(v) => set("location", v)} placeholder="mis. Masjid Raya Bintaro / Online (Zoom)" />
+              <Text label="Kota" value={ev.city} onChange={(v) => set("city", v)} placeholder="mis. Jakarta / Online" />
+              <div className="flex items-end pb-1"><Toggle label="Event online" checked={!!ev.online} onChange={(v) => set("online", v)} /></div>
+              <div className="flex items-end pb-1"><Toggle label="Tampilkan sebagai unggulan" checked={!!ev.featured} onChange={(v) => set("featured", v)} /></div>
+              <Text label="Tanggal" type="date" value={ev.date} onChange={(v) => set("date", v)} />
+              <div className="grid grid-cols-2 gap-3">
+                <Text label="Mulai" value={ev.timeStart} onChange={(v) => set("timeStart", v)} placeholder="08:00" />
+                <Text label="Selesai" value={ev.timeEnd} onChange={(v) => set("timeEnd", v)} placeholder="11:00" />
+              </div>
+              <Num label="Harga (Rp)" value={ev.price} onChange={(v) => set("price", v)} hint="0 = Gratis" />
+              <div className="grid grid-cols-2 gap-3">
+                <Num label="Kuota" value={ev.quota} onChange={(v) => set("quota", v)} />
+                <Num label="Sudah daftar" value={ev.registered} onChange={(v) => set("registered", v)} />
+              </div>
+              <div className="sm:col-span-2"><Area label="Ringkasan singkat" value={ev.excerpt} onChange={(v) => set("excerpt", v)} rows={2} hint="1 kalimat, muncul di kartu & detail." /></div>
+              <div className="sm:col-span-2"><Area label="Deskripsi" value={aboutText} onChange={(v) => set("about", v)} rows={4} hint="Satu paragraf per baris." /></div>
+              <div className="sm:col-span-2"><Area label="Yang Anda Dapatkan" value={benefitsText} onChange={(v) => set("benefits", v)} rows={3} hint="Satu poin per baris." /></div>
+
+              <div className="sm:col-span-2">
+                <Label>Emoji poster</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {EMOJIS.map((em) => <button key={em} type="button" onClick={() => set("emoji", em)} className={"grid h-9 w-9 place-items-center rounded-lg border text-lg " + (ev.emoji === em ? "border-brand bg-brand-50" : "border-slate-200 bg-white")}>{em}</button>)}
+                </div>
+              </div>
+              <div className="sm:col-span-2">
+                <Label>Warna poster</Label>
+                <div className="flex flex-wrap gap-2">
+                  {GRADIENTS.map((g, i) => (
+                    <button key={i} type="button" onClick={() => set("gradient", g.slice())} title={g.join(" → ")}
+                      className={"h-9 w-14 rounded-lg border-2 " + (ev.gradient[0] === g[0] && ev.gradient[1] === g[1] ? "border-brand-dark" : "border-white shadow")}
+                      style={{ backgroundImage: "linear-gradient(145deg," + g[0] + "," + g[1] + ")" }} />
+                  ))}
+                  <div className="flex items-center gap-1">
+                    <input type="color" value={ev.gradient[0]} onChange={(e) => set("gradient", [e.target.value, ev.gradient[1]])} className="h-9 w-9 rounded" />
+                    <input type="color" value={ev.gradient[1]} onChange={(e) => set("gradient", [ev.gradient[0], e.target.value])} className="h-9 w-9 rounded" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={save} className="rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-white hover:bg-brand-600">Simpan Event</button>
+              <button onClick={onCancel} className="rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-ink/70 hover:bg-slate-50">Batal</button>
+            </div>
+          </div>
+        );
+      }
+
+      /* ============ EVENT LIST ============ */
+      function EventList({ data, setData, onEdit, onNew }) {
+        const events = data.events;
+        function move(i, dir) {
+          const j = i + dir; if (j < 0 || j >= events.length) return;
+          const arr = events.slice(); const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+          setData({ ...data, events: arr });
+        }
+        function del(i) {
+          if (!confirm("Hapus event \"" + events[i].title + "\"?")) return;
+          setData({ ...data, events: events.filter((_, k) => k !== i) });
+        }
+        function dup(i) {
+          const c = clone(events[i]); c.slug = ""; c.title = c.title + " (salinan)";
+          const arr = events.slice(); arr.splice(i + 1, 0, c); setData({ ...data, events: arr });
+        }
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-extrabold text-brand-dark">Event <span className="text-ink/40">({events.length})</span></h2>
+              <button onClick={onNew} className="rounded-xl bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">+ Tambah Event</button>
+            </div>
+            {events.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-ink/50">Belum ada event. Klik "Tambah Event".</p>}
+            <div className="space-y-2.5">
+              {events.map((e, i) => (
+                <div key={e.slug || i} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="grid h-12 w-12 shrink-0 place-items-center rounded-lg text-xl text-white" style={{ backgroundImage: "linear-gradient(145deg," + e.gradient[0] + "," + e.gradient[1] + ")" }}>{e.emoji}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate font-bold text-ink">{e.title}</p>
+                      {e.featured && <span className="rounded bg-gold/20 px-1.5 py-0.5 text-[10px] font-bold text-orange">unggulan</span>}
+                    </div>
+                    <p className="truncate text-xs text-ink/55">{e.category} · {formatTanggal(e.date)} · {e.online ? "Online" : e.city} · {formatRupiah(e.price)}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button onClick={() => move(i, -1)} title="Naik" className="grid h-8 w-8 place-items-center rounded text-ink/50 hover:bg-slate-100">▲</button>
+                    <button onClick={() => move(i, 1)} title="Turun" className="grid h-8 w-8 place-items-center rounded text-ink/50 hover:bg-slate-100">▼</button>
+                    <button onClick={() => dup(i)} title="Duplikat" className="grid h-8 w-8 place-items-center rounded text-ink/50 hover:bg-slate-100">⧉</button>
+                    <button onClick={() => onEdit(i)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Edit</button>
+                    <button onClick={() => del(i)} title="Hapus" className="grid h-8 w-8 place-items-center rounded text-orange hover:bg-orange/10">🗑</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      }
+
+      /* ============ SETTINGS ============ */
+      function Settings({ data, setData }) {
+        const s = data.site || {};
+        const setS = (k, v) => setData({ ...data, site: { ...s, [k]: v } });
+        const colors = s.colors || { green: "#28a840", dark: "#185838", gold: "#f6b700", orange: "#f58634" };
+        const setColor = (k, v) => setData({ ...data, site: { ...s, colors: { ...colors, [k]: v } } });
+        return (
+          <div className="space-y-6">
+            <h2 className="text-lg font-extrabold text-brand-dark">Pengaturan Situs</h2>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Text label="Nama Brand" value={s.name} onChange={(v) => setS("name", v)} />
+              <Text label="Tagline" value={s.tagline} onChange={(v) => setS("tagline", v)} />
+              <div className="sm:col-span-2"><Area label="Intro (di beranda)" value={s.intro} onChange={(v) => setS("intro", v)} rows={2} /></div>
+              <Text label="Nomor WhatsApp" value={s.whatsapp} onChange={(v) => setS("whatsapp", v)} placeholder="62812xxxxxxx (tanpa +, tanpa spasi)" />
+              <Text label="Email" value={s.email} onChange={(v) => setS("email", v)} />
+              <Text label="Instagram (username)" value={s.instagram} onChange={(v) => setS("instagram", v)} placeholder="yakesma.official" />
+              <Text label="Website" value={s.website} onChange={(v) => setS("website", v)} />
+              <div className="sm:col-span-2"><Text label="Alamat" value={s.address} onChange={(v) => setS("address", v)} /></div>
+            </div>
+            <div>
+              <Label>Warna Brand</Label>
+              <div className="flex flex-wrap gap-4">
+                {[["green","Hijau utama"],["dark","Hijau tua"],["gold","Emas"],["orange","Oranye"]].map(([k, lbl]) => (
+                  <label key={k} className="flex items-center gap-2 text-sm">
+                    <input type="color" value={colors[k]} onChange={(e) => setColor(k, e.target.value)} className="h-9 w-9 rounded" />
+                    <span className="text-ink/70">{lbl}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-ink/45">Logo diganti dengan menimpa file <code>yakesma-logo.png</code> / <code>yakesma-mark.png</code> di repo.</p>
+            </div>
+          </div>
+        );
+      }
+
+      /* ============ PREVIEW ============ */
+      function Preview() {
+        const [nonce, setNonce] = useState(Date.now());
+        const [wide, setWide] = useState(true);
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-extrabold text-brand-dark">Pratinjau Langsung</h2>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setWide(!wide)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">{wide ? "📱 Mobile" : "🖥 Desktop"}</button>
+                <button onClick={() => setNonce(Date.now())} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-600">↻ Segarkan</button>
+              </div>
+            </div>
+            <p className="text-xs text-ink/50">Menampilkan situs dengan perubahan Anda (belum tayang publik sampai Terbitkan).</p>
+            <div className="mx-auto overflow-hidden rounded-xl border border-slate-300 bg-white transition-all" style={{ width: wide ? "100%" : "390px" }}>
+              <iframe key={nonce} src={"../index.html?preview=1&t=" + nonce} title="Pratinjau" className="h-[70vh] w-full" />
+            </div>
+          </div>
+        );
+      }
+
+      /* ============ PUBLISH ============ */
+      function Publish({ data }) {
+        const [copied, setCopied] = useState(false);
+        const dataJs = useMemo(() => generateDataJs(data), [data]);
+        function copy() { navigator.clipboard.writeText(dataJs).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); }); }
+        function resetToPublished() {
+          if (!confirm("Buang semua perubahan yang belum diterbitkan dan kembali ke data.js yang sekarang?")) return;
+          localStorage.removeItem(WORK_KEY); location.reload();
+        }
+        return (
+          <div className="space-y-5">
+            <h2 className="text-lg font-extrabold text-brand-dark">Terbitkan ke Situs Publik</h2>
+            <div className="rounded-xl border border-brand-100 bg-brand-50 p-4 text-sm text-ink/80">
+              <p className="font-semibold text-brand-dark">Cara menerbitkan:</p>
+              <ol className="mt-2 list-decimal space-y-1 pl-5">
+                <li>Klik <b>Unduh data.js</b> (atau <b>Salin JSON</b>).</li>
+                <li>Kirim file/JSON itu ke Claude dan minta <b>"terbitkan"</b> — Claude akan mengganti <code>data.js</code> di repo lalu push. Situs live update ±1 menit.</li>
+                <li>Alternatif mandiri: ganti file <code>yakesma-site/data.js</code> dengan yang baru, lalu <code>git commit</code> &amp; <code>git push</code>.</li>
+              </ol>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button onClick={() => download("data.js", dataJs)} className="rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-white hover:bg-brand-600">⬇ Unduh data.js</button>
+              <button onClick={copy} className="rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-ink/70 hover:bg-slate-50">{copied ? "✓ Tersalin" : "Salin JSON"}</button>
+              <button onClick={resetToPublished} className="ml-auto rounded-xl border border-orange/40 px-5 py-2.5 text-sm font-semibold text-orange hover:bg-orange/10">Buang perubahan</button>
+            </div>
+            <div>
+              <Label>Isi data.js (pratinjau)</Label>
+              <textarea readOnly value={dataJs} className="h-56 w-full rounded-xl border border-slate-300 bg-slate-50 p-3 font-mono text-xs" />
+            </div>
+          </div>
+        );
+      }
+
+      /* ============ LOCK ============ */
+      function Lock({ onUnlock }) {
+        const [pin, setPin] = useState("");
+        const [err, setErr] = useState(false);
+        function submit(e) {
+          e.preventDefault();
+          if (pin === ADMIN_PASSCODE) { sessionStorage.setItem(UNLOCK_KEY, "1"); onUnlock(); }
+          else { setErr(true); setPin(""); }
+        }
+        return (
+          <div className="grid min-h-screen place-items-center px-4">
+            <form onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
+              <img src="../yakesma-logo.png" alt="YAKESMA" className="mx-auto h-9" />
+              <h1 className="mt-5 text-center text-lg font-extrabold text-brand-dark">Panel Admin</h1>
+              <p className="mt-1 text-center text-sm text-ink/50">Masukkan passcode untuk lanjut.</p>
+              <input autoFocus type="password" value={pin} onChange={(e) => { setPin(e.target.value); setErr(false); }} placeholder="Passcode" className={"mt-5 w-full rounded-xl border px-4 py-3 text-center outline-none focus:ring-2 focus:ring-brand/20 " + (err ? "border-orange" : "border-slate-300 focus:border-brand")} />
+              {err && <p className="mt-2 text-center text-sm text-orange">Passcode salah.</p>}
+              <button type="submit" className="mt-4 w-full rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white hover:bg-brand-600">Masuk</button>
+              <p className="mt-4 text-center text-[11px] leading-relaxed text-ink/40">Catatan: proteksi ringan sisi-browser, bukan keamanan sungguhan. Isi live hanya berubah setelah Anda menerbitkan ke repo.</p>
+            </form>
+          </div>
+        );
+      }
+
+      /* ============ APP ============ */
+      function AdminApp() {
+        const [data, setDataRaw] = useState(loadWork);
+        const [tab, setTab] = useState("event");
+        const [editing, setEditing] = useState(null); // index | "new" | null
+        const [savedFlash, setSavedFlash] = useState(false);
+
+        function setData(d) { setDataRaw(d); saveWork(d); setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1200); }
+
+        const cats = (data.categories && data.categories.length ? data.categories : FALLBACK_CATEGORIES);
+        const existingSlugs = data.events.map((e) => e.slug);
+
+        function saveEvent(ev) {
+          const arr = data.events.slice();
+          if (editing === "new") arr.push(ev);
+          else arr[editing] = ev;
+          setData({ ...data, events: arr });
+          setEditing(null);
+        }
+
+        const tabs = [["event", "Event"], ["pengaturan", "Pengaturan"], ["pratinjau", "Pratinjau"], ["terbitkan", "Terbitkan"]];
+
+        return (
+          <div className="min-h-screen">
+            {/* Top bar */}
+            <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur">
+              <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <img src="../yakesma-mark.png" alt="" className="h-7" />
+                  <span className="font-extrabold text-brand-dark">Admin</span>
+                  <span className={"ml-2 text-xs transition " + (savedFlash ? "text-brand" : "text-ink/35")}>{savedFlash ? "✓ tersimpan" : "tersimpan lokal"}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <a href="../index.html?preview=1" target="_blank" rel="noopener" className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Buka situs ↗</a>
+                  <button onClick={() => setTab("terbitkan")} className="rounded-lg bg-brand px-3.5 py-1.5 text-xs font-bold text-white hover:bg-brand-600">Terbitkan</button>
+                  <button onClick={() => { sessionStorage.removeItem(UNLOCK_KEY); location.reload(); }} title="Kunci" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-ink/60 hover:bg-slate-50">🔒</button>
+                </div>
+              </div>
+              {!editing && (
+                <div className="mx-auto flex max-w-4xl gap-1 overflow-x-auto px-4">
+                  {tabs.map(([k, lbl]) => (
+                    <button key={k} onClick={() => setTab(k)} className={"shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition " + (tab === k ? "border-brand text-brand-dark" : "border-transparent text-ink/50 hover:text-ink")}>{lbl}</button>
+                  ))}
+                </div>
+              )}
+            </header>
+
+            <main className="mx-auto max-w-4xl px-4 py-6">
+              {editing != null ? (
+                <EventEditor
+                  initial={editing === "new" ? emptyEvent() : data.events[editing]}
+                  categories={cats}
+                  existingSlugs={existingSlugs.filter((_, i) => i !== editing)}
+                  onSave={saveEvent}
+                  onCancel={() => setEditing(null)}
+                />
+              ) : tab === "event" ? (
+                <EventList data={data} setData={setData} onEdit={(i) => setEditing(i)} onNew={() => setEditing("new")} />
+              ) : tab === "pengaturan" ? (
+                <Settings data={data} setData={setData} />
+              ) : tab === "pratinjau" ? (
+                <Preview />
+              ) : (
+                <Publish data={data} />
+              )}
+            </main>
+          </div>
+        );
+      }
+
+      function Root() {
+        const [unlocked, setUnlocked] = useState(sessionStorage.getItem(UNLOCK_KEY) === "1");
+        return unlocked ? <AdminApp /> : <Lock onUnlock={() => setUnlocked(true)} />;
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
+    </script>
+  </body>
+</html>

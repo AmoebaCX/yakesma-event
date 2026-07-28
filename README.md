@@ -27,6 +27,24 @@ Lalu buka http://127.0.0.1:5190
 - **Event Saya** — daftar tiket yang sudah didaftarkan
 - **Akun** — profil (tersimpan lokal), kontak, Tentang/Privasi/S&K
 
+## Panel Admin
+
+Halaman admin untuk mengelola isi situs (tanpa ngoding): **`/admin/`**
+- Lokal: http://127.0.0.1:5190/admin/
+- Live: https://AmoebaCX.github.io/yakesma-event/admin/
+- **Passcode default:** `yakesma2026` (ubah di `ADMIN_PASSCODE`, dekat atas `admin/index.html`).
+
+Fitur: tambah/edit/hapus/urutkan event, atur brand (nama, tagline, kontak, warna),
+**pratinjau langsung**, lalu **Terbitkan**.
+
+**Alur terbit:** admin → tab *Terbitkan* → **Unduh data.js** (atau *Salin JSON*) →
+ganti file `data.js` di repo → `git commit` & `git push` → situs live update ±1 menit.
+(Atau kirim JSON-nya ke Claude dan minta "terbitkan".)
+
+> Konten situs = file **`data.js`** (sumber tunggal). `index.html` memakainya, dengan
+> fallback bawaan bila `data.js` gagal dimuat. Passcode admin hanya proteksi ringan
+> sisi-browser — isi live tetap aman karena hanya berubah lewat push ke repo.
+
 ## Kustomisasi (semua di dalam `index.html`)
 
 - **Nama, tagline, kontak, WhatsApp, Instagram, alamat** → objek `SITE` di bagian

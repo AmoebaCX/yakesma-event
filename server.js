@@ -17,6 +17,8 @@ const TYPES = {
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent((req.url || "/").split("?")[0]);
   if (p === "/" || p === "") p = "/index.html";
+  else if (p.endsWith("/")) p += "index.html";
+  else if (!path.extname(p)) p += "/index.html"; // /admin -> /admin/index.html
   const safe = path.normalize(p).replace(/^(\.\.[/\\])+/, "");
   const file = path.join(ROOT, safe);
 
