@@ -81,6 +81,9 @@
         instagram: "yakesma.official",
         website: "yakesma.org",
         address: "Jl. Contoh Alamat No. 1, Jakarta Selatan",
+        bankName: "Bank Syariah Indonesia (BSI)",
+        accountNumber: "1234567890",
+        accountHolder: "Yayasan YAKESMA",
         logo: "yakesma-logo.png",
         mark: "yakesma-mark.png",
       };
@@ -303,8 +306,44 @@
       }
       function getAccount() { return safeParse(localStorage.getItem(ACC_KEY), null); }
       function saveAccount(acc) { localStorage.setItem(ACC_KEY, JSON.stringify(acc)); }
-      function makeTicketCode() { return "YKS-" + Math.random().toString(36).slice(2, 8).toUpperCase(); }
-      function makeId() { return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7); }
+      function updateRegistrationInCache(id, patch) {
+        const list = safeParse(localStorage.getItem(REG_KEY), []);
+        const next = list.map((r) => (r.id === id ? Object.assign({}, r, patch) : r));
+        localStorage.setItem(REG_KEY, JSON.stringify(next));
+      }
+
+      /* ============================ BACKEND (yakesma-api) ============================ */
+      const API_BASE = "https://yakesma-event-api.vercel.app";
+
+      /** Daftar event ke backend nyata. Mengembalikan {ok:true,data} atau {ok:false,error}. */
+      async function apiRegister(payload) {
+        try {
+          const res = await fetch(API_BASE + "/api/registrations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) return { ok: false, error: body.error || "Gagal mendaftar. Coba lagi." };
+          return { ok: true, data: body };
+        } catch (e) {
+          return { ok: false, error: "Tidak bisa terhubung ke server. Periksa koneksi internet Anda." };
+        }
+      }
+
+      /** Cek status pendaftaran terkini di server (dipakai untuk menyegarkan cache lokal). */
+      async function apiLookupStatus(ticketCode, email) {
+        try {
+          const url = API_BASE + "/api/registrations/lookup?ticketCode=" +
+            encodeURIComponent(ticketCode) + "&email=" + encodeURIComponent(email);
+          const res = await fetch(url);
+          if (!res.ok) return { ok: false };
+          const body = await res.json();
+          return { ok: true, data: body };
+        } catch (e) {
+          return { ok: false };
+        }
+      }
 
       /* ============================ ROUTER (hash) ============================ */
       function parseHash() {
@@ -453,6 +492,37 @@
         );
       }
 
+      const STATUS_LABEL = {
+        free: { text: "Gratis", cls: "bg-brand-50 text-brand-700" },
+        pending_transfer: { text: "Menunggu Konfirmasi", cls: "bg-gold/20 text-orange" },
+        paid: { text: "Lunas", cls: "bg-brand text-white" },
+        cancelled: { text: "Dibatalkan", cls: "bg-ink/10 text-ink/50" },
+      };
+      function StatusBadge({ status }) {
+        const s = STATUS_LABEL[status] || STATUS_LABEL.free;
+        return <span className={"shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold " + s.cls}>{s.text}</span>;
+      }
+
+      function BankInfo({ code, total }) {
+        return (
+          <div className="rounded-xl border border-dashed border-orange/40 bg-orange/5 p-4 text-sm">
+            <p className="font-bold text-brand-dark">Instruksi Transfer</p>
+            <p className="mt-1 text-ink/70">
+              Transfer <span className="font-bold text-brand-dark">{formatRupiah(total)}</span> ke:
+            </p>
+            <p className="mt-2 font-bold text-brand-dark">{SITE.bankName}</p>
+            <p className="text-ink/70">
+              {SITE.accountNumber} a.n. {SITE.accountHolder}
+            </p>
+            <p className="mt-2 text-ink/70">
+              Sertakan kode <span className="font-mono font-bold text-brand-dark">{code}</span> pada
+              kolom berita/catatan transfer agar mudah diverifikasi. Jika aplikasi bank Anda tidak
+              punya kolom catatan, kirim bukti transfer ke WhatsApp admin.
+            </p>
+          </div>
+        );
+      }
+
       function Barcode({ seed }) {
         const bars = Array.from({ length: 42 }, (_, i) => {
           const c = seed.charCodeAt(i % seed.length) + i * 7;
@@ -475,20 +545,26 @@
       }
 
       function TicketCard({ reg, free }) {
+        const pending = reg.paymentStatus === "pending_transfer";
         return (
           <div className="animate-in overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm">
-            <div className="bg-brand-50 px-5 py-5 text-center">
-              <IconCheckCircle className="mx-auto size-12 text-brand" />
-              <h3 className="mt-2 text-lg font-extrabold text-brand-dark">{free ? "Pendaftaran Berhasil!" : "Pesanan Diterima!"}</h3>
+            <div className={pending ? "bg-gold/10 px-5 py-5 text-center" : "bg-brand-50 px-5 py-5 text-center"}>
+              <IconCheckCircle className={pending ? "mx-auto size-12 text-orange" : "mx-auto size-12 text-brand"} />
+              <h3 className="mt-2 text-lg font-extrabold text-brand-dark">
+                {free ? "Pendaftaran Berhasil!" : pending ? "Menunggu Konfirmasi Pembayaran" : "Pesanan Diterima!"}
+              </h3>
               <p className="mt-1 text-sm text-ink/60">Tunjukkan kode ini saat registrasi ulang.</p>
             </div>
-            <div className="px-5 py-5">
+            <div className="space-y-4 px-5 py-5">
               <div className="rounded-xl border border-dashed border-brand-200 p-4 text-center">
                 <p className="text-xs font-semibold uppercase tracking-widest text-ink/50">Kode Tiket</p>
                 <p className="mt-1 font-mono text-2xl font-extrabold tracking-widest text-brand-dark">{reg.code}</p>
                 <Barcode seed={reg.code} />
               </div>
-              <dl className="mt-4 space-y-2 text-sm">
+
+              {pending && <BankInfo code={reg.code} total={reg.total} />}
+
+              <dl className="space-y-2 text-sm">
                 <TicketRow label="Event" value={reg.title} />
                 <TicketRow label="Tanggal" value={formatTanggal(reg.eventDate)} />
                 <TicketRow label="Lokasi" value={reg.location} />
@@ -496,8 +572,8 @@
                 <TicketRow label={free ? "Peserta" : "Tiket"} value={String(reg.quantity)} />
                 {!free && <TicketRow label="Total" value={formatRupiah(reg.total)} strong />}
               </dl>
-              <Link to="/event-saya" className="mt-5 flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Lihat di Event Saya</Link>
-              <Link to="/event" className="mt-2 flex w-full items-center justify-center rounded-xl border border-brand-100 px-4 py-3 text-sm font-semibold text-brand-dark transition hover:bg-brand-50">Daftar Event Lain</Link>
+              <Link to="/event-saya" className="flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Lihat di Event Saya</Link>
+              <Link to="/event" className="flex w-full items-center justify-center rounded-xl border border-brand-100 px-4 py-3 text-sm font-semibold text-brand-dark transition hover:bg-brand-50">Daftar Event Lain</Link>
             </div>
           </div>
         );
@@ -512,23 +588,52 @@
         const [error, setError] = useState("");
         const [done, setDone] = useState(null);
         const [already, setAlready] = useState(null);
+        const [submitting, setSubmitting] = useState(false);
 
         useEffect(() => {
           const acc = getAccount();
           if (acc) { setName(acc.name); setEmail(acc.email); setPhone(acc.phone); }
           const existing = getRegistrations().find((r) => r.slug === event.slug);
-          if (existing) setAlready(existing);
+          if (!existing) return;
+          setAlready(existing);
+          // Segarkan status dari server (mis. admin sudah menandai lunas) — sebaik mungkin,
+          // gagal diam-diam jika offline, cache lama tetap dipakai.
+          apiLookupStatus(existing.code, existing.email).then((res) => {
+            if (res.ok && res.data.paymentStatus && res.data.paymentStatus !== existing.paymentStatus) {
+              const patch = { paymentStatus: res.data.paymentStatus };
+              updateRegistrationInCache(existing.id, patch);
+              setAlready((prev) => (prev ? Object.assign({}, prev, patch) : prev));
+            }
+          });
         }, [event.slug]);
 
-        function handleSubmit(e) {
+        async function handleSubmit(e) {
           e.preventDefault();
           if (!name.trim() || !email.trim() || !phone.trim()) { setError("Mohon lengkapi nama, email, dan nomor WhatsApp."); return; }
           if (!/^\S+@\S+\.\S+$/.test(email)) { setError("Format email belum benar."); return; }
+          setError("");
+          setSubmitting(true);
+          const result = await apiRegister({
+            eventSlug: event.slug,
+            eventTitle: event.title,
+            eventCategory: event.category,
+            eventDate: event.date,
+            eventLocation: event.online ? "Online" : event.location + ", " + event.city,
+            name: name.trim(),
+            email: email.trim(),
+            phone: phone.trim(),
+            quantity: qty,
+            unitPrice: event.price,
+          });
+          setSubmitting(false);
+          if (!result.ok) { setError(result.error); return; }
+
           const reg = {
-            id: makeId(), slug: event.slug, title: event.title, category: event.category,
+            id: result.data.id, slug: event.slug, title: event.title, category: event.category,
             name: name.trim(), email: email.trim(), phone: phone.trim(),
-            quantity: qty, unitPrice: event.price, total: event.price * qty,
-            code: makeTicketCode(), eventDate: event.date,
+            quantity: qty, unitPrice: event.price, total: result.data.totalAmount,
+            code: result.data.ticketCode, paymentStatus: result.data.paymentStatus,
+            eventDate: event.date,
             location: event.online ? "Online" : event.location + ", " + event.city,
             createdAt: new Date().toISOString(),
           };
@@ -541,10 +646,21 @@
         if (done) return <TicketCard reg={done} free={free} />;
         if (already)
           return (
-            <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
-              <div className="flex items-center gap-2 text-brand-dark"><IconCheckCircle className="size-6 text-brand" /><p className="font-bold">Anda sudah terdaftar</p></div>
-              <p className="mt-2 text-sm text-ink/60">Kode tiket Anda: <span className="font-mono font-bold text-brand-dark">{already.code}</span></p>
-              <Link to="/event-saya" className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Lihat di Event Saya</Link>
+            <div className="space-y-3 rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-brand-dark">
+                  <IconCheckCircle className="size-6 text-brand" />
+                  <p className="font-bold">Anda sudah terdaftar</p>
+                </div>
+                <StatusBadge status={already.paymentStatus} />
+              </div>
+              <p className="text-sm text-ink/60">
+                Kode tiket Anda: <span className="font-mono font-bold text-brand-dark">{already.code}</span>
+              </p>
+              {already.paymentStatus === "pending_transfer" && (
+                <BankInfo code={already.code} total={already.total} />
+              )}
+              <Link to="/event-saya" className="flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Lihat di Event Saya</Link>
             </div>
           );
 
@@ -574,10 +690,10 @@
               </div>
             )}
             {error && <p className="mt-3 rounded-lg bg-orange/10 px-3 py-2 text-sm font-medium text-orange">{error}</p>}
-            <button type="submit" className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition hover:bg-brand-600">
-              <IconTicket className="size-5" />{free ? "Daftar Sekarang" : "Pesan Tiket"}
+            <button type="submit" disabled={submitting} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60">
+              <IconTicket className="size-5" />{submitting ? "Memproses…" : free ? "Daftar Sekarang" : "Pesan Tiket"}
             </button>
-            <p className="mt-3 text-center text-xs text-ink/45">{free ? "Pendaftaran gratis. Konfirmasi dikirim ke WhatsApp Anda." : "Pembayaran disimulasikan untuk demo — tidak ada transaksi nyata."}</p>
+            <p className="mt-3 text-center text-xs text-ink/45">{free ? "Pendaftaran gratis. Konfirmasi dikirim ke WhatsApp Anda." : "Setelah mendaftar, transfer sesuai instruksi. Admin mengonfirmasi secara manual."}</p>
           </form>
         );
       }
@@ -759,8 +875,22 @@
 
       function EventSaya() {
         const [regs, setRegs] = useState([]);
-        useEffect(() => { setRegs(getRegistrations()); }, []);
-        function batal(id) { removeRegistration(id); setRegs(getRegistrations()); }
+        useEffect(() => {
+          const cached = getRegistrations();
+          setRegs(cached);
+          // Segarkan status pembayaran tiap pendaftaran dari server (mis. admin
+          // sudah menandai lunas) — sebaik mungkin, diam-diam gagal jika offline.
+          cached.forEach((r) => {
+            if (!r.code || !r.email) return;
+            apiLookupStatus(r.code, r.email).then((res) => {
+              if (res.ok && res.data.paymentStatus && res.data.paymentStatus !== r.paymentStatus) {
+                updateRegistrationInCache(r.id, { paymentStatus: res.data.paymentStatus });
+                setRegs(getRegistrations());
+              }
+            });
+          });
+        }, []);
+        function sembunyikan(id) { removeRegistration(id); setRegs(getRegistrations()); }
         return (
           <Container className="space-y-6">
             <header>
@@ -778,6 +908,7 @@
               <div className="space-y-4">
                 {regs.map((r) => {
                   const free = r.unitPrice <= 0;
+                  const pending = r.paymentStatus === "pending_transfer";
                   return (
                     <div key={r.id} className="animate-in overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm">
                       <div className="flex items-stretch">
@@ -791,12 +922,13 @@
                               <span className="inline-block rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-bold text-brand-700">{r.category}</span>
                               <h3 className="mt-1.5 truncate font-bold text-brand-dark">{r.title}</h3>
                             </div>
-                            <span className="shrink-0 rounded-full bg-brand px-2.5 py-1 text-[11px] font-bold text-white">Terdaftar</span>
+                            <StatusBadge status={r.paymentStatus} />
                           </div>
                           <div className="mt-2 space-y-1 text-sm text-ink/60">
                             <p className="flex items-center gap-1.5"><IconCalendar className="size-4 text-brand" />{formatTanggal(r.eventDate)}</p>
                             <p className="flex items-center gap-1.5"><IconMapPin className="size-4 text-brand" /><span className="truncate">{r.location}</span></p>
                           </div>
+                          {pending && <div className="mt-3"><BankInfo code={r.code} total={r.total} /></div>}
                           <div className="mt-3 flex items-center justify-between border-t border-brand-50 pt-3">
                             <span className="text-sm">
                               <span className="text-ink/55">{r.quantity} {free ? "peserta" : "tiket"}</span>
@@ -804,7 +936,7 @@
                             </span>
                             <div className="flex items-center gap-3">
                               <Link to={"/event/" + r.slug} className="text-sm font-semibold text-brand hover:text-brand-dark">Detail</Link>
-                              <button type="button" onClick={() => batal(r.id)} className="inline-flex items-center gap-1 text-sm font-semibold text-orange hover:opacity-80"><IconTrash className="size-4" />Batal</button>
+                              <button type="button" onClick={() => sembunyikan(r.id)} title="Hanya menghapus dari daftar di perangkat ini — pendaftaran Anda tetap berlaku" className="inline-flex items-center gap-1 text-sm font-semibold text-ink/40 hover:text-orange"><IconTrash className="size-4" />Sembunyikan</button>
                             </div>
                           </div>
                         </div>

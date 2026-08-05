@@ -22,38 +22,57 @@ Lalu buka http://127.0.0.1:5190
 - **Beranda** — hero, kategori, daftar "Event Terbaru"
 - **Event** — semua event + pencarian & filter kategori
 - **Detail event** — poster, jadwal, lokasi, kuota, deskripsi, benefit, pemateri
-- **Pendaftaran** — form nama/email/WhatsApp + tiket berkode (gratis & berbayar,
-  pembayaran disimulasikan). Tersimpan di browser (localStorage).
-- **Event Saya** — daftar tiket yang sudah didaftarkan
+- **Pendaftaran** — form nama/email/WhatsApp + tiket berkode (gratis & berbayar).
+  Tersimpan nyata di database ([yakesma-api](../yakesma-api)), bukan cuma di
+  browser. Event berbayar pakai **transfer bank manual** — pendaftar dapat
+  instruksi transfer + kode referensi, admin mengonfirmasi lewat panel admin.
+- **Event Saya** — daftar tiket yang sudah didaftarkan; status disegarkan dari
+  server tiap dibuka (mis. begitu admin menandai lunas)
 - **Akun** — profil (tersimpan lokal), kontak, Tentang/Privasi/S&K
 
 ## Panel Admin
 
-Halaman admin untuk mengelola isi situs (tanpa ngoding): **`/admin/`**
+Halaman admin untuk mengelola isi situs & pendaftaran: **`/admin/`**
 - Lokal: http://127.0.0.1:5190/admin/
 - Live: https://AmoebaCX.github.io/yakesma-event/admin/
-- **Passcode default:** `yakesma2026` (ubah di `ADMIN_PASSCODE`, dekat atas `admin/index.html`).
 
-Fitur: tambah/edit/hapus/urutkan event, atur brand (nama, tagline, kontak, warna),
-**pratinjau langsung**, lalu **Terbitkan**.
+Admin punya **dua gerbang masuk terpisah**, sengaja dipisah karena beda tingkat
+kepekaan datanya:
 
-**Alur terbit:** admin → tab *Terbitkan* → **Unduh data.js** (atau *Salin JSON*) →
-ganti file `data.js` di repo → `git commit` & `git push` → situs live update ±1 menit.
-(Atau kirim JSON-nya ke Claude dan minta "terbitkan".)
+1. **Passcode konten** (tab Event/Pengaturan/Pratinjau/Terbitkan) — proteksi
+   ringan sisi-browser untuk mengedit konten non-sensitif. Ubah di
+   `ADMIN_PASSCODE`, dekat atas `admin/index.html`.
+2. **Password Pendaftaran** (tab Pendaftaran) — login sungguhan ke
+   [yakesma-api](../yakesma-api) (di-hash scrypt, token sesi 12 jam) karena tab
+   ini membaca/mengubah data pribadi pendaftar & status pembayaran nyata.
+   Ganti dengan generate hash baru — lihat README `yakesma-api`.
 
-> Konten situs = file **`data.js`** (sumber tunggal). `index.html` memakainya, dengan
-> fallback bawaan bila `data.js` gagal dimuat. Passcode admin hanya proteksi ringan
-> sisi-browser — isi live tetap aman karena hanya berubah lewat push ke repo.
+**Tab Event/Pengaturan/Pratinjau/Terbitkan** — kelola event & pengaturan situs
+(termasuk rekening bank untuk transfer manual). Alur terbit: tab *Terbitkan* →
+**Unduh data.js** (atau *Salin JSON*) → ganti file `data.js` di repo →
+`git commit` & `git push` → situs live update ±1 menit. (Atau kirim JSON-nya ke
+Claude dan minta "terbitkan".)
 
-## Kustomisasi (semua di dalam `index.html`)
+**Tab Pendaftaran** — daftar semua pendaftar nyata (bukan simulasi), filter per
+status/event, tombol **Tandai Lunas**/**Batalkan** untuk konfirmasi transfer
+manual, dan **Ekspor CSV**.
 
-- **Nama, tagline, kontak, WhatsApp, Instagram, alamat** → objek `SITE` di bagian
-  "KONFIGURASI BRAND".
-- **Warna brand** → `tailwind.config` di `<head>` (hijau `#28a840`, hijau tua
-  `#185838`, emas `#f6b700`, oranye `#f58634`).
-- **Daftar event** → array `EVENTS`. Tiap event: `slug, title, category, speaker,
-  location, city, online, date, timeStart, timeEnd, price (0 = gratis), quota,
-  registered, gradient, emoji, excerpt, about[], benefits[], featured`.
+> Konten situs (event, teks, warna) = file **`data.js`** (sumber tunggal),
+> dengan fallback bawaan bila gagal dimuat. **Pendaftaran** disimpan di
+> database nyata lewat `yakesma-api`, bukan di `data.js` — lihat
+> [`../yakesma-api/README.md`](../yakesma-api/README.md).
+
+## Kustomisasi
+
+Cara yang benar: lewat **panel admin** (tab Event/Pengaturan → Terbitkan), bukan
+edit manual. Tapi kalau perlu tahu strukturnya:
+
+- **Nama, tagline, kontak, warna, rekening bank** → objek `site` di `data.js`
+  (fallback bawaan ada di `_DEFAULT_SITE`, dekat atas `index.html`).
+- **Daftar event** → array `events` di `data.js`. Tiap event: `slug, title,
+  category, speaker, location, city, online, date, timeStart, timeEnd, price
+  (0 = gratis), quota, registered, gradient, emoji, excerpt, about[],
+  benefits[], featured`.
 - **Logo** → ganti file `yakesma-logo.png` (lockup) & `yakesma-mark.png` (ikon).
 
 ## Untuk produksi
