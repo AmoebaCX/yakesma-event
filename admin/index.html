@@ -635,10 +635,16 @@
             latestDataRef.current = res.data;
             updatedAtRef.current = res.updatedAt;
             setLoadState("ready");
+            // WORK_KEY hanya ada kalau sesi sebelumnya berakhir dengan edit
+            // yang belum sukses tersimpan (ditulis di setData, dihapus begitu
+            // flushSave sukses) — jadi cukup cek keberadaannya, bukan
+            // membandingkan isinya. Membandingkan isi akan salah-positif:
+            // server menormalisasi field opsional (mis. menambah "speaker":"")
+            // setiap kali disimpan, jadi salinan lokal & server bisa berbeda
+            // padahal sama-sama sudah tersimpan.
             try {
               const saved = JSON.parse(localStorage.getItem(WORK_KEY) || "null");
-              if (saved && JSON.stringify(saved) !== JSON.stringify(res.data)) setRecovery(saved);
-              else localStorage.setItem(WORK_KEY, JSON.stringify(res.data));
+              if (saved && saved.events && saved.events.length) setRecovery(saved);
             } catch (e) {}
           })();
           return () => { cancelled = true; };
@@ -660,7 +666,12 @@
             updatedAtRef.current = res.updatedAt;
             setSaveErrorStatus(null);
             setSaveState("saved");
-            if (pendingRef.current) { pendingRef.current = false; scheduleSave(); }
+            if (pendingRef.current) {
+              pendingRef.current = false;
+              scheduleSave();
+            } else {
+              try { localStorage.removeItem(WORK_KEY); } catch (e) {}
+            }
           });
         }
         function scheduleSave() {
@@ -685,7 +696,7 @@
         }
         function dismissRecovery() {
           setRecovery(null);
-          try { localStorage.setItem(WORK_KEY, JSON.stringify(latestDataRef.current)); } catch (e) {}
+          try { localStorage.removeItem(WORK_KEY); } catch (e) {}
         }
 
         if (loadState === "loading") {
