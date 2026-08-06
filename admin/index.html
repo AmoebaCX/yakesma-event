@@ -16,8 +16,6 @@
       });
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Muat konten saat ini sebagai bibit editor -->
-    <script src="../data.js"></script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -52,9 +50,7 @@
       const { useState, useEffect, useMemo, useRef } = React;
 
       /* ============ KONFIG ============ */
-      const ADMIN_PASSCODE = "1tLeHq6Y4iOs"; // ← ganti passcode di sini kapan saja
-      const WORK_KEY = "yakesma_admin_data";
-      const UNLOCK_KEY = "yakesma_admin_unlocked";
+      const WORK_KEY = "yakesma_admin_data"; // buffer pemulihan jika simpan gagal, bukan draft
 
       const FALLBACK_CATEGORIES = ["Kajian", "Webinar", "Kelas", "Seminar", "Sosial", "Relawan", "Lari Virtual"];
       const EMOJIS = ["🕌","📖","🎓","🤝","🎈","💻","🌙","🎪","👨‍👩‍👧","✨","📿","🕋","💚","🎁","📣","🍲"];
@@ -97,15 +93,37 @@
           requiresShipping: false,
         };
       }
-      function loadWork() {
-        try { const w = JSON.parse(localStorage.getItem(WORK_KEY) || "null"); if (w && w.events) return w; } catch (e) {}
-        if (window.YAKESMA_DATA) return clone(window.YAKESMA_DATA);
-        return { site: {}, categories: FALLBACK_CATEGORIES.slice(), events: [] };
+      async function loadContent() {
+        try {
+          const res = await apiFetch("/api/content");
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) return { ok: false, error: body.error || "Gagal memuat konten." };
+          return {
+            ok: true,
+            data: {
+              site: body.site || {},
+              categories: body.categories && body.categories.length ? body.categories : FALLBACK_CATEGORIES.slice(),
+              events: body.events || [],
+            },
+            updatedAt: body.updatedAt,
+          };
+        } catch (e) {
+          return { ok: false, error: "Tidak bisa terhubung ke server." };
+        }
       }
-      function saveWork(d) { localStorage.setItem(WORK_KEY, JSON.stringify(d)); }
-      function generateDataJs(d) {
-        return "/* Konten YAKESMA — dihasilkan oleh halaman admin. Terbitkan dengan mengganti file data.js lalu push. */\n" +
-          "window.YAKESMA_DATA = " + JSON.stringify(d, null, 2) + ";\n";
+      async function saveContent(data, expectedUpdatedAt) {
+        try {
+          const res = await apiFetch("/api/content", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ site: data.site, categories: data.categories, events: data.events, expectedUpdatedAt }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) return { ok: false, error: body.error || "Gagal menyimpan.", status: res.status };
+          return { ok: true, updatedAt: body.updatedAt };
+        } catch (e) {
+          return { ok: false, error: "Tidak bisa terhubung ke server." };
+        }
       }
 
       /* ============ FIELD UI ============ */
@@ -148,6 +166,7 @@
           const e = clone(ev);
           e.title = (e.title || "").trim();
           if (!e.title) { alert("Judul wajib diisi."); return; }
+          if (!e.date) { alert("Tanggal wajib diisi."); return; }
           e.slug = slugify(e.slug || e.title);
           if (existingSlugs.filter((s) => s === e.slug).length > 0) {
             // pastikan unik
@@ -348,42 +367,9 @@
                 <button onClick={() => setNonce(Date.now())} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-600">↻ Segarkan</button>
               </div>
             </div>
-            <p className="text-xs text-ink/50">Menampilkan situs dengan perubahan Anda (belum tayang publik sampai Terbitkan).</p>
+            <p className="text-xs text-ink/50">Menampilkan situs publik saat ini — setiap perubahan yang tersimpan langsung terlihat di sini.</p>
             <div className="mx-auto overflow-hidden rounded-xl border border-slate-300 bg-white transition-all" style={{ width: wide ? "100%" : "390px" }}>
-              <iframe key={nonce} src={"../index.html?preview=1&t=" + nonce} title="Pratinjau" className="h-[70vh] w-full" />
-            </div>
-          </div>
-        );
-      }
-
-      /* ============ PUBLISH ============ */
-      function Publish({ data }) {
-        const [copied, setCopied] = useState(false);
-        const dataJs = useMemo(() => generateDataJs(data), [data]);
-        function copy() { navigator.clipboard.writeText(dataJs).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); }); }
-        function resetToPublished() {
-          if (!confirm("Buang semua perubahan yang belum diterbitkan dan kembali ke data.js yang sekarang?")) return;
-          localStorage.removeItem(WORK_KEY); location.reload();
-        }
-        return (
-          <div className="space-y-5">
-            <h2 className="text-lg font-extrabold text-brand-dark">Terbitkan ke Situs Publik</h2>
-            <div className="rounded-xl border border-brand-100 bg-brand-50 p-4 text-sm text-ink/80">
-              <p className="font-semibold text-brand-dark">Cara menerbitkan:</p>
-              <ol className="mt-2 list-decimal space-y-1 pl-5">
-                <li>Klik <b>Unduh data.js</b> (atau <b>Salin JSON</b>).</li>
-                <li>Kirim file/JSON itu ke Claude dan minta <b>"terbitkan"</b> — Claude akan mengganti <code>data.js</code> di repo lalu push. Situs live update ±1 menit.</li>
-                <li>Alternatif mandiri: ganti file <code>yakesma-site/data.js</code> dengan yang baru, lalu <code>git commit</code> &amp; <code>git push</code>.</li>
-              </ol>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button onClick={() => download("data.js", dataJs)} className="rounded-xl bg-brand px-5 py-2.5 text-sm font-bold text-white hover:bg-brand-600">⬇ Unduh data.js</button>
-              <button onClick={copy} className="rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-semibold text-ink/70 hover:bg-slate-50">{copied ? "✓ Tersalin" : "Salin JSON"}</button>
-              <button onClick={resetToPublished} className="ml-auto rounded-xl border border-orange/40 px-5 py-2.5 text-sm font-semibold text-orange hover:bg-orange/10">Buang perubahan</button>
-            </div>
-            <div>
-              <Label>Isi data.js (pratinjau)</Label>
-              <textarea readOnly value={dataJs} className="h-56 w-full rounded-xl border border-slate-300 bg-slate-50 p-3 font-mono text-xs" />
+              <iframe key={nonce} src={"../index.html?t=" + nonce} title="Pratinjau" className="h-[70vh] w-full" />
             </div>
           </div>
         );
@@ -432,38 +418,6 @@
         return <span className={"rounded-full px-2.5 py-1 text-[11px] font-bold " + s.cls}>{s.text}</span>;
       }
 
-      function PendaftaranLogin({ onLoggedIn }) {
-        const [password, setPassword] = useState("");
-        const [error, setError] = useState("");
-        const [loading, setLoading] = useState(false);
-        async function submit(e) {
-          e.preventDefault();
-          setError(""); setLoading(true);
-          const res = await apiLogin(password);
-          setLoading(false);
-          if (!res.ok) { setError(res.error); return; }
-          setApiToken({ token: res.token, expiresAt: res.expiresAt });
-          onLoggedIn();
-        }
-        return (
-          <form onSubmit={submit} className="mx-auto max-w-sm space-y-4 rounded-2xl border border-slate-200 bg-white p-6">
-            <div>
-              <h2 className="text-lg font-extrabold text-brand-dark">Masuk ke Pendaftaran</h2>
-              <p className="mt-1 text-sm text-ink/50">
-                Password terpisah dari passcode konten — ini mengakses data pendaftar &amp; status pembayaran nyata.
-              </p>
-            </div>
-            <input autoFocus type="password" value={password}
-              onChange={(e) => { setPassword(e.target.value); setError(""); }}
-              placeholder="Password admin" className={inputCls} />
-            {error && <p className="text-sm text-orange">{error}</p>}
-            <button type="submit" disabled={loading} className="w-full rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white hover:bg-brand-600 disabled:opacity-60">
-              {loading ? "Memeriksa…" : "Masuk"}
-            </button>
-          </form>
-        );
-      }
-
       function PendaftaranPanel() {
         const [items, setItems] = useState([]);
         const [total, setTotal] = useState(0);
@@ -481,7 +435,7 @@
           if (status) params.set("status", status);
           params.set("pageSize", "100");
           const res = await apiFetch("/api/registrations?" + params.toString());
-          if (res.status === 401) { setError("Sesi berakhir, silakan masuk lagi."); setLoading(false); return; }
+          if (res.status === 401) { location.reload(); return; }
           const body = await res.json().catch(() => ({}));
           if (!res.ok) { setError(body.error || "Gagal memuat data."); setLoading(false); return; }
           setItems(body.items || []); setTotal(body.total || 0); setLoading(false);
@@ -516,7 +470,6 @@
               <h2 className="text-lg font-extrabold text-brand-dark">Pendaftaran <span className="text-ink/40">({total})</span></h2>
               <div className="flex items-center gap-2">
                 <button onClick={ekspor} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Ekspor CSV</button>
-                <button onClick={() => { clearApiToken(); location.reload(); }} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Keluar</button>
               </div>
             </div>
 
@@ -622,38 +575,33 @@
         );
       }
 
-      function Pendaftaran() {
-        const [ready, setReady] = useState(false);
-        const [ok, setOk] = useState(false);
-        useEffect(() => {
-          const tok = getApiToken();
-          if (!tok) { setReady(true); return; }
-          apiFetch("/api/admin/session").then((res) => { setOk(res.ok); setReady(true); });
-        }, []);
-        if (!ready) return <p className="py-8 text-center text-sm text-ink/40">Memuat…</p>;
-        if (!ok) return <PendaftaranLogin onLoggedIn={() => setOk(true)} />;
-        return <PendaftaranPanel />;
-      }
-
-      /* ============ LOCK ============ */
-      function Lock({ onUnlock }) {
-        const [pin, setPin] = useState("");
-        const [err, setErr] = useState(false);
-        function submit(e) {
+      /* ============ LOGIN ADMIN ============ */
+      function AdminLogin({ onLoggedIn }) {
+        const [password, setPassword] = useState("");
+        const [error, setError] = useState("");
+        const [loading, setLoading] = useState(false);
+        async function submit(e) {
           e.preventDefault();
-          if (pin === ADMIN_PASSCODE) { sessionStorage.setItem(UNLOCK_KEY, "1"); onUnlock(); }
-          else { setErr(true); setPin(""); }
+          setError(""); setLoading(true);
+          const res = await apiLogin(password);
+          setLoading(false);
+          if (!res.ok) { setError(res.error); setPassword(""); return; }
+          setApiToken({ token: res.token, expiresAt: res.expiresAt });
+          onLoggedIn();
         }
         return (
           <div className="grid min-h-screen place-items-center px-4">
             <form onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
               <img src="../yakesma-logo.png" alt="YAKESMA" className="mx-auto h-9" />
               <h1 className="mt-5 text-center text-lg font-extrabold text-brand-dark">Panel Admin</h1>
-              <p className="mt-1 text-center text-sm text-ink/50">Masukkan passcode untuk lanjut.</p>
-              <input autoFocus type="password" value={pin} onChange={(e) => { setPin(e.target.value); setErr(false); }} placeholder="Passcode" className={"mt-5 w-full rounded-xl border px-4 py-3 text-center outline-none focus:ring-2 focus:ring-brand/20 " + (err ? "border-orange" : "border-slate-300 focus:border-brand")} />
-              {err && <p className="mt-2 text-center text-sm text-orange">Passcode salah.</p>}
-              <button type="submit" className="mt-4 w-full rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white hover:bg-brand-600">Masuk</button>
-              <p className="mt-4 text-center text-[11px] leading-relaxed text-ink/40">Catatan: proteksi ringan sisi-browser, bukan keamanan sungguhan. Isi live hanya berubah setelah Anda menerbitkan ke repo.</p>
+              <p className="mt-1 text-center text-sm text-ink/50">Masuk dengan password admin untuk lanjut.</p>
+              <input autoFocus type="password" value={password}
+                onChange={(e) => { setPassword(e.target.value); setError(""); }}
+                placeholder="Password admin" className="mt-5 w-full rounded-xl border border-slate-300 px-4 py-3 text-center outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20" />
+              {error && <p className="mt-2 text-center text-sm text-orange">{error}</p>}
+              <button type="submit" disabled={loading} className="mt-4 w-full rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white hover:bg-brand-600 disabled:opacity-60">
+                {loading ? "Memeriksa…" : "Masuk"}
+              </button>
             </form>
           </div>
         );
@@ -661,12 +609,98 @@
 
       /* ============ APP ============ */
       function AdminApp() {
-        const [data, setDataRaw] = useState(loadWork);
+        const [loadState, setLoadState] = useState("loading"); // loading | ready | error
+        const [loadErrorMsg, setLoadErrorMsg] = useState("");
+        const [data, setDataRaw] = useState(null);
+        const [recovery, setRecovery] = useState(null);
+        const [saveState, setSaveState] = useState("idle"); // idle | pending | saving | saved | error
+        const [saveErrorMsg, setSaveErrorMsg] = useState("");
+        const [saveErrorStatus, setSaveErrorStatus] = useState(null);
         const [tab, setTab] = useState("event");
         const [editing, setEditing] = useState(null); // index | "new" | null
-        const [savedFlash, setSavedFlash] = useState(false);
 
-        function setData(d) { setDataRaw(d); saveWork(d); setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1200); }
+        const latestDataRef = useRef(null);
+        const updatedAtRef = useRef(null);
+        const savingRef = useRef(false);
+        const pendingRef = useRef(false);
+        const saveTimer = useRef(null);
+
+        useEffect(() => {
+          let cancelled = false;
+          (async () => {
+            const res = await loadContent();
+            if (cancelled) return;
+            if (!res.ok) { setLoadState("error"); setLoadErrorMsg(res.error); return; }
+            setDataRaw(res.data);
+            latestDataRef.current = res.data;
+            updatedAtRef.current = res.updatedAt;
+            setLoadState("ready");
+            try {
+              const saved = JSON.parse(localStorage.getItem(WORK_KEY) || "null");
+              if (saved && JSON.stringify(saved) !== JSON.stringify(res.data)) setRecovery(saved);
+              else localStorage.setItem(WORK_KEY, JSON.stringify(res.data));
+            } catch (e) {}
+          })();
+          return () => { cancelled = true; };
+        }, []);
+
+        function flushSave() {
+          if (savingRef.current) { pendingRef.current = true; return; }
+          savingRef.current = true;
+          setSaveState("saving");
+          saveContent(latestDataRef.current, updatedAtRef.current).then((res) => {
+            savingRef.current = false;
+            if (!res.ok) {
+              if (res.status === 401) { location.reload(); return; }
+              setSaveState("error");
+              setSaveErrorMsg(res.error);
+              setSaveErrorStatus(res.status || null);
+              return;
+            }
+            updatedAtRef.current = res.updatedAt;
+            setSaveErrorStatus(null);
+            setSaveState("saved");
+            if (pendingRef.current) { pendingRef.current = false; scheduleSave(); }
+          });
+        }
+        function scheduleSave() {
+          if (saveTimer.current) clearTimeout(saveTimer.current);
+          saveTimer.current = setTimeout(flushSave, 600);
+        }
+        function retrySave() {
+          if (saveTimer.current) clearTimeout(saveTimer.current);
+          flushSave();
+        }
+        function setData(d) {
+          setDataRaw(d);
+          latestDataRef.current = d;
+          try { localStorage.setItem(WORK_KEY, JSON.stringify(d)); } catch (e) {}
+          setSaveState("pending");
+          scheduleSave();
+        }
+        function restoreRecovery() {
+          const r = recovery;
+          setRecovery(null);
+          setData(r);
+        }
+        function dismissRecovery() {
+          setRecovery(null);
+          try { localStorage.setItem(WORK_KEY, JSON.stringify(latestDataRef.current)); } catch (e) {}
+        }
+
+        if (loadState === "loading") {
+          return <p className="grid min-h-screen place-items-center text-sm text-ink/40">Memuat konten…</p>;
+        }
+        if (loadState === "error") {
+          return (
+            <div className="grid min-h-screen place-items-center px-4 text-center">
+              <div>
+                <p className="text-sm text-orange">{loadErrorMsg}</p>
+                <button onClick={() => location.reload()} className="mt-3 rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">Muat Ulang</button>
+              </div>
+            </div>
+          );
+        }
 
         const cats = (data.categories && data.categories.length ? data.categories : FALLBACK_CATEGORIES);
         const existingSlugs = data.events.map((e) => e.slug);
@@ -679,7 +713,14 @@
           setEditing(null);
         }
 
-        const tabs = [["event", "Event"], ["pendaftaran", "Pendaftaran"], ["pengaturan", "Pengaturan"], ["pratinjau", "Pratinjau"], ["terbitkan", "Terbitkan"]];
+        const tabs = [["event", "Event"], ["pendaftaran", "Pendaftaran"], ["pengaturan", "Pengaturan"], ["pratinjau", "Pratinjau"]];
+        const badge = {
+          idle: { text: "Tersinkron", cls: "text-ink/35" },
+          pending: { text: "Menunggu disimpan…", cls: "text-ink/40" },
+          saving: { text: "Menyimpan…", cls: "text-ink/40" },
+          saved: { text: "✓ Tersimpan & tayang", cls: "text-brand" },
+          error: { text: "⚠ Gagal simpan", cls: "text-orange" },
+        }[saveState];
 
         return (
           <div className="min-h-screen">
@@ -689,12 +730,20 @@
                 <div className="flex items-center gap-2">
                   <img src="../yakesma-mark.png" alt="" className="h-7" />
                   <span className="font-extrabold text-brand-dark">Admin</span>
-                  <span className={"ml-2 text-xs transition " + (savedFlash ? "text-brand" : "text-ink/35")}>{savedFlash ? "✓ tersimpan" : "tersimpan lokal"}</span>
+                  <span className={"ml-2 text-xs transition " + badge.cls}>{badge.text}</span>
+                  {saveState === "error" && (
+                    <button
+                      onClick={saveErrorStatus === 409 ? () => location.reload() : retrySave}
+                      title={saveErrorMsg}
+                      className="ml-1 rounded border border-orange/40 px-2 py-0.5 text-[11px] font-semibold text-orange hover:bg-orange/10"
+                    >
+                      {saveErrorStatus === 409 ? "Muat ulang" : "Coba lagi"}
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <a href="../index.html?preview=1" target="_blank" rel="noopener" className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Buka situs ↗</a>
-                  <button onClick={() => setTab("terbitkan")} className="rounded-lg bg-brand px-3.5 py-1.5 text-xs font-bold text-white hover:bg-brand-600">Terbitkan</button>
-                  <button onClick={() => { sessionStorage.removeItem(UNLOCK_KEY); location.reload(); }} title="Kunci" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-ink/60 hover:bg-slate-50">🔒</button>
+                  <a href="../index.html" target="_blank" rel="noopener" className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Buka situs ↗</a>
+                  <button onClick={() => { clearApiToken(); location.reload(); }} title="Kunci" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-ink/60 hover:bg-slate-50">🔒</button>
                 </div>
               </div>
               {!editing && (
@@ -705,6 +754,18 @@
                 </div>
               )}
             </header>
+
+            {recovery && (
+              <div className="mx-auto mt-3 max-w-4xl px-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-gold/40 bg-gold/10 px-4 py-2.5 text-sm">
+                  <span className="text-ink/80">Ditemukan perubahan yang belum sempat tersimpan dari sesi sebelumnya.</span>
+                  <div className="flex gap-2">
+                    <button onClick={restoreRecovery} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-600">Pulihkan</button>
+                    <button onClick={dismissRecovery} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Abaikan</button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <main className="mx-auto max-w-4xl px-4 py-6">
               {editing != null ? (
@@ -718,13 +779,11 @@
               ) : tab === "event" ? (
                 <EventList data={data} setData={setData} onEdit={(i) => setEditing(i)} onNew={() => setEditing("new")} />
               ) : tab === "pendaftaran" ? (
-                <Pendaftaran />
+                <PendaftaranPanel />
               ) : tab === "pengaturan" ? (
                 <Settings data={data} setData={setData} />
-              ) : tab === "pratinjau" ? (
-                <Preview />
               ) : (
-                <Publish data={data} />
+                <Preview />
               )}
             </main>
           </div>
@@ -732,8 +791,15 @@
       }
 
       function Root() {
-        const [unlocked, setUnlocked] = useState(sessionStorage.getItem(UNLOCK_KEY) === "1");
-        return unlocked ? <AdminApp /> : <Lock onUnlock={() => setUnlocked(true)} />;
+        const [state, setState] = useState("checking"); // checking | out | in
+        useEffect(() => {
+          const tok = getApiToken();
+          if (!tok) { setState("out"); return; }
+          apiFetch("/api/admin/session").then((res) => setState(res.ok ? "in" : "out"));
+        }, []);
+        if (state === "checking") return <p className="grid min-h-screen place-items-center text-sm text-ink/40">Memuat…</p>;
+        if (state === "out") return <AdminLogin onLoggedIn={() => setState("in")} />;
+        return <AdminApp />;
       }
 
       ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
