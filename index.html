@@ -7,6 +7,16 @@
     <meta name="description" content="Ikuti kajian, kelas, webinar, dan program kebaikan YAKESMA — Lembaga Amil Zakat Nasional." />
     <title>YAKESMA — Lembaga Amil Zakat Nasional</title>
 
+    <!-- Mulai ambil konten SEBELUM CDN React/Babel (2.9MB) di-download, supaya
+         paralel bukan berurutan — saat blok text/babel jalan nanti, response
+         ini biasanya sudah datang. -->
+    <script>
+      window.__YAKESMA_CONTENT_PROMISE__ = fetch("https://yakesma-event-api.vercel.app/api/content", { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body) => (body && body.events && body.events.length ? body : null))
+        .catch(() => null);
+    </script>
+
     <!-- React + Babel + Tailwind (semua via CDN — tanpa build, tanpa native tooling) -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -19,9 +29,6 @@
       });
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- Konten dikelola lewat admin (data.js = sumber tunggal; fallback ke bawaan) -->
-    <script src="data.js"></script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -71,21 +78,22 @@
     <script type="text/babel" data-presets="react-classic">
       const { useState, useEffect, useMemo } = React;
 
-      /* ============================ KONFIGURASI BRAND (fallback bawaan) ============================ */
+      /* ====== KONFIGURASI BRAND (fallback offline — disalin dari konten nyata terakhir) ====== */
       const _DEFAULT_SITE = {
         name: "YAKESMA",
         tagline: "Lembaga Amil Zakat Nasional",
         intro: "Ikuti kajian, kelas, webinar, dan program kebaikan YAKESMA. Perluas ilmu, perbanyak amal, raih keberkahan.",
-        whatsapp: "6281234567890",
-        email: "info@yakesma.org",
-        instagram: "yakesma.official",
+        whatsapp: "6282273333477",
+        email: "welcome@yakesma.org",
+        instagram: "yakesma",
         website: "yakesma.org",
-        address: "Jl. Contoh Alamat No. 1, Jakarta Selatan",
+        address: "eluk Jakarta No.9, RT.6/RW.8, Ps. Minggu, Kota Jakarta Selatan, Daerah Khusus Ibukota Jakarta 12520",
         bankName: "Bank Syariah Indonesia (BSI)",
         accountNumber: "1234567890",
         accountHolder: "Yayasan YAKESMA",
         logo: "yakesma-logo.png",
         mark: "yakesma-mark.png",
+        colors: { green: "#28a840", dark: "#185838", gold: "#f6b700", orange: "#f58634" },
       };
 
       const NAV = [
@@ -95,196 +103,380 @@
         { href: "/akun", label: "Akun", icon: "user" },
       ];
 
-      const _DEFAULT_CATEGORIES = ["Kajian", "Webinar", "Kelas", "Seminar", "Sosial", "Relawan", "Lari Virtual"];
+      const _DEFAULT_CATEGORIES = ["Kajian","Webinar","Kelas","Seminar","Sosial","Relawan","Lari Virtual"];
 
-      /* ============================ DATA EVENT (fallback bawaan) ============================ */
+      /* ====== DATA EVENT (fallback offline — disalin dari konten nyata terakhir) ====== */
       const _DEFAULT_EVENTS = [
         {
-          slug: "bali-international-virtual-run",
-          title: "Bali International Virtual Run",
-          category: "Lari Virtual",
-          location: "Virtual (Lari di Mana Saja)", city: "Online", online: true,
-          date: "2026-08-17", timeStart: "00:00", timeEnd: "23:59",
-          price: 250000, quota: 1000, registered: 0,
-          requiresShipping: true,
-          gradient: ["#f58634", "#f6b700"], emoji: "🏃",
-          excerpt: "Lari di mana saja, kapan saja, sepanjang 17 Agustus 2026 — rayakan kemerdekaan sambil berbagi kebaikan.",
-          about: [
-            "Bali International Virtual Run mengajak Anda berlari 5K, 10K, atau jarak pilihan Anda sendiri — di kota mana pun Anda berada — dalam rangka memperingati Hari Kemerdekaan RI sekaligus mendukung program kebaikan YAKESMA.",
-            "Cukup daftar, lari kapan saja sepanjang 17 Agustus 2026, lalu dokumentasikan aktivitas Anda. Jersey eksklusif dan medali finisher akan dikirim langsung ke alamat Anda setelah event berakhir.",
+          "slug": "bali-international-virtual-run",
+          "title": "Bali International Virtual Run",
+          "category": "Lari Virtual",
+          "location": "Virtual (Lari di Mana Saja)",
+          "city": "Online",
+          "online": true,
+          "date": "2026-08-17",
+          "timeStart": "00:00",
+          "timeEnd": "23:59",
+          "price": 250000,
+          "quota": 1000,
+          "registered": 0,
+          "requiresShipping": true,
+          "gradient": [
+            "#f58634",
+            "#f6b700"
           ],
-          benefits: [
+          "emoji": "🏃",
+          "excerpt": "Lari di mana saja, kapan saja, sepanjang 17 Agustus 2026 — rayakan kemerdekaan sambil berbagi kebaikan.",
+          "about": [
+            "Bali International Virtual Run mengajak Anda berlari 5K, 10K, atau jarak pilihan Anda sendiri — di kota mana pun Anda berada — dalam rangka memperingati Hari Kemerdekaan RI sekaligus mendukung program kebaikan YAKESMA.",
+            "Cukup daftar, lari kapan saja sepanjang 17 Agustus 2026, lalu dokumentasikan aktivitas Anda. Jersey eksklusif dan medali finisher akan dikirim langsung ke alamat Anda setelah event berakhir."
+          ],
+          "benefits": [
             "Jersey eksklusif Bali International Virtual Run",
             "Medali finisher",
             "E-sertifikat resmi",
-            "Sebagian biaya pendaftaran disalurkan untuk program sosial YAKESMA",
+            "Sebagian biaya pendaftaran disalurkan untuk program sosial YAKESMA"
           ],
-          featured: true,
+          "featured": true
         },
         {
-          slug: "kajian-akbar-keajaiban-sedekah",
-          title: "Kajian Akbar: Keajaiban Sedekah",
-          category: "Kajian", speaker: "Ustadz Ahmad Zaki, Lc.",
-          location: "Masjid Raya Bintaro", city: "Jakarta", online: false,
-          date: "2026-08-10", timeStart: "08:00", timeEnd: "11:00",
-          price: 0, quota: 500, registered: 312,
-          gradient: ["#28a840", "#185838"], emoji: "🕌",
-          excerpt: "Menyelami keutamaan sedekah dan bagaimana ia membuka pintu rezeki.",
-          about: [
+          "slug": "kajian-akbar-keajaiban-sedekah",
+          "title": "Kajian Akbar: Keajaiban Sedekah",
+          "category": "Kajian",
+          "speaker": "Ustadz Ahmad Zaki, Lc.",
+          "location": "Masjid Raya Bintaro",
+          "city": "Jakarta",
+          "online": false,
+          "date": "2026-08-10",
+          "timeStart": "08:00",
+          "timeEnd": "11:00",
+          "price": 0,
+          "quota": 500,
+          "registered": 312,
+          "gradient": [
+            "#28a840",
+            "#185838"
+          ],
+          "emoji": "🕌",
+          "excerpt": "Menyelami keutamaan sedekah dan bagaimana ia membuka pintu rezeki.",
+          "about": [
             "Sedekah bukan mengurangi harta, melainkan mengundang keberkahan. Dalam kajian ini kita akan membahas dalil-dalil keutamaan sedekah serta kisah nyata bagaimana sedekah mengubah hidup seseorang.",
-            "Terbuka untuk umum, gratis, dan disediakan snack untuk 500 peserta pertama. Mari hadir dan ajak keluarga.",
+            "Terbuka untuk umum, gratis, dan disediakan snack untuk 500 peserta pertama. Mari hadir dan ajak keluarga."
           ],
-          benefits: ["Materi kajian & e-sertifikat kehadiran", "Snack dan minuman", "Kesempatan tanya-jawab langsung"],
-          featured: true,
+          "benefits": [
+            "Materi kajian & e-sertifikat kehadiran",
+            "Snack dan minuman",
+            "Kesempatan tanya-jawab langsung"
+          ],
+          "featured": true
         },
         {
-          slug: "webinar-tunaikan-zakat-era-digital",
-          title: "Webinar: Tunaikan Zakat di Era Digital",
-          category: "Webinar", speaker: "Tim Edukasi YAKESMA",
-          location: "Online (Zoom)", city: "Online", online: true,
-          date: "2026-08-16", timeStart: "19:30", timeEnd: "21:00",
-          price: 0, quota: 1000, registered: 648,
-          gradient: ["#1f9036", "#0e6b4e"], emoji: "💻",
-          excerpt: "Cara mudah menghitung dan menunaikan zakat secara online, anti ribet.",
-          about: [
+          "slug": "morning-flow",
+          "title": "Morning Flow",
+          "category": "Sosial",
+          "speaker": "",
+          "location": "",
+          "city": "Online",
+          "online": true,
+          "date": "2026-07-29",
+          "timeStart": "",
+          "timeEnd": "",
+          "price": 1000,
+          "quota": 100,
+          "registered": 0,
+          "gradient": [
+            "#f58634",
+            "#f6b700"
+          ],
+          "emoji": "🌙",
+          "excerpt": "Sedekah rutin",
+          "about": [
+            "Sedekah rutin!"
+          ],
+          "benefits": [
+            "Laporan berkala dari sedekah harian"
+          ],
+          "featured": false
+        },
+        {
+          "slug": "webinar-tunaikan-zakat-era-digital",
+          "title": "Webinar: Tunaikan Zakat di Era Digital",
+          "category": "Webinar",
+          "speaker": "Tim Edukasi YAKESMA",
+          "location": "Online (Zoom)",
+          "city": "Online",
+          "online": true,
+          "date": "2026-08-16",
+          "timeStart": "19:30",
+          "timeEnd": "21:00",
+          "price": 0,
+          "quota": 1000,
+          "registered": 648,
+          "gradient": [
+            "#1f9036",
+            "#0e6b4e"
+          ],
+          "emoji": "💻",
+          "excerpt": "Cara mudah menghitung dan menunaikan zakat secara online, anti ribet.",
+          "about": [
             "Zakat kini bisa ditunaikan hanya dari genggaman. Webinar ini mengupas jenis-jenis zakat, cara menghitung nisab, hingga praktik menunaikan zakat secara digital yang aman dan amanah.",
-            "Cocok untuk Anda yang ingin memastikan zakatnya tepat hitung dan tepat sasaran.",
+            "Cocok untuk Anda yang ingin memastikan zakatnya tepat hitung dan tepat sasaran."
           ],
-          benefits: ["Link Zoom & rekaman webinar", "Kalkulator zakat digital", "E-sertifikat peserta"],
-          featured: true,
+          "benefits": [
+            "Link Zoom & rekaman webinar",
+            "Kalkulator zakat digital",
+            "E-sertifikat peserta"
+          ],
+          "featured": true
         },
         {
-          slug: "kelas-tahsin-al-quran-intensif",
-          title: "Kelas Tahsin Al-Qur'an Intensif (4 Pekan)",
-          category: "Kelas", speaker: "Ustadzah Halimah, S.Pd.I.",
-          location: "Online (Zoom)", city: "Online", online: true,
-          date: "2026-08-23", timeStart: "09:00", timeEnd: "10:30",
-          price: 150000, quota: 40, registered: 28,
-          gradient: ["#f6b700", "#f58634"], emoji: "📖",
-          excerpt: "Perbaiki bacaan Al-Qur'an dari makhraj hingga tajwid dalam 4 pekan.",
-          about: [
+          "slug": "kelas-tahsin-al-quran-intensif",
+          "title": "Kelas Tahsin Al-Qur'an Intensif (4 Pekan)",
+          "category": "Kelas",
+          "speaker": "Ustadzah Halimah, S.Pd.I.",
+          "location": "Online (Zoom)",
+          "city": "Online",
+          "online": true,
+          "date": "2026-08-23",
+          "timeStart": "09:00",
+          "timeEnd": "10:30",
+          "price": 150000,
+          "quota": 40,
+          "registered": 28,
+          "gradient": [
+            "#f6b700",
+            "#f58634"
+          ],
+          "emoji": "📖",
+          "excerpt": "Perbaiki bacaan Al-Qur'an dari makhraj hingga tajwid dalam 4 pekan.",
+          "about": [
             "Program intensif 4 pekan (8 pertemuan) untuk memperbaiki bacaan Al-Qur'an. Dibimbing langsung oleh pengajar bersanad dengan kelompok kecil agar setiap peserta mendapat koreksi personal.",
-            "Kontribusi kelas digunakan untuk operasional pengajar dan program tahsin gratis bagi dhuafa.",
+            "Kontribusi kelas digunakan untuk operasional pengajar dan program tahsin gratis bagi dhuafa."
           ],
-          benefits: ["8 sesi live via Zoom + rekaman", "Modul tahsin & lembar evaluasi", "Grup pendampingan dan e-sertifikat"],
+          "benefits": [
+            "8 sesi live via Zoom + rekaman",
+            "Modul tahsin & lembar evaluasi",
+            "Grup pendampingan dan e-sertifikat"
+          ]
         },
         {
-          slug: "seminar-fikih-zakat-wakaf-kontemporer",
-          title: "Seminar Fikih Zakat & Wakaf Kontemporer",
-          category: "Seminar", speaker: "Dr. H. Abdurrahman, M.A.",
-          location: "Hotel Grand Malabar", city: "Bandung", online: false,
-          date: "2026-09-06", timeStart: "08:00", timeEnd: "15:00",
-          price: 75000, quota: 200, registered: 96,
-          gradient: ["#185838", "#28a840"], emoji: "🎓",
-          excerpt: "Membahas isu-isu zakat & wakaf modern: saham, kripto, hingga wakaf uang.",
-          about: [
+          "slug": "seminar-fikih-zakat-wakaf-kontemporer",
+          "title": "Seminar Fikih Zakat & Wakaf Kontemporer",
+          "category": "Seminar",
+          "speaker": "Dr. H. Abdurrahman, M.A.",
+          "location": "Hotel Grand Malabar",
+          "city": "Bandung",
+          "online": false,
+          "date": "2026-09-06",
+          "timeStart": "08:00",
+          "timeEnd": "15:00",
+          "price": 75000,
+          "quota": 200,
+          "registered": 96,
+          "gradient": [
+            "#185838",
+            "#28a840"
+          ],
+          "emoji": "🎓",
+          "excerpt": "Membahas isu-isu zakat & wakaf modern: saham, kripto, hingga wakaf uang.",
+          "about": [
             "Seminar sehari penuh membahas penerapan fikih zakat dan wakaf pada instrumen modern seperti zakat penghasilan, zakat saham, hingga wakaf uang dan wakaf produktif.",
-            "Menghadirkan pemateri ahli dan sesi diskusi panel. Termasuk makan siang dan coffee break.",
+            "Menghadirkan pemateri ahli dan sesi diskusi panel. Termasuk makan siang dan coffee break."
           ],
-          benefits: ["Seminar kit & makan siang", "Sertifikat resmi (SKP tersedia)", "Materi presentasi para pemateri"],
-          featured: true,
+          "benefits": [
+            "Seminar kit & makan siang",
+            "Sertifikat resmi (SKP tersedia)",
+            "Materi presentasi para pemateri"
+          ],
+          "featured": true
         },
         {
-          slug: "santunan-wisata-1000-anak-yatim",
-          title: "Santunan & Wisata 1000 Anak Yatim",
-          category: "Sosial",
-          location: "Taman Impian Ceria", city: "Jakarta", online: false,
-          date: "2026-09-14", timeStart: "07:00", timeEnd: "16:00",
-          price: 100000, quota: 300, registered: 154,
-          gradient: ["#f58634", "#f6b700"], emoji: "🎈",
-          excerpt: "Berbagi kebahagiaan bersama 1000 anak yatim lewat santunan dan wisata.",
-          about: [
+          "slug": "santunan-wisata-1000-anak-yatim",
+          "title": "Santunan & Wisata 1000 Anak Yatim",
+          "category": "Sosial",
+          "speaker": "",
+          "location": "Taman Impian Ceria",
+          "city": "Jakarta",
+          "online": false,
+          "date": "2026-09-14",
+          "timeStart": "07:00",
+          "timeEnd": "16:00",
+          "price": 100000,
+          "quota": 300,
+          "registered": 154,
+          "gradient": [
+            "#f58634",
+            "#f6b700"
+          ],
+          "emoji": "🎈",
+          "excerpt": "Berbagi kebahagiaan bersama 1000 anak yatim lewat santunan dan wisata.",
+          "about": [
             "Sehari penuh keceriaan bersama 1000 anak yatim: santunan, permainan edukatif, dan wisata bersama. Partisipasi Anda menjadi paket donasi untuk seorang anak yatim.",
-            "Anda dapat hadir langsung sebagai kakak pendamping atau berdonasi tanpa hadir. Setiap kontribusi Rp100.000 menanggung satu anak.",
+            "Anda dapat hadir langsung sebagai kakak pendamping atau berdonasi tanpa hadir. Setiap kontribusi Rp100.000 menanggung satu anak."
           ],
-          benefits: ["Menanggung 1 paket santunan anak yatim", "Kaos relawan (jika hadir)", "Laporan & dokumentasi kegiatan"],
+          "benefits": [
+            "Menanggung 1 paket santunan anak yatim",
+            "Kaos relawan (jika hadir)",
+            "Laporan & dokumentasi kegiatan"
+          ]
         },
         {
-          slug: "relawan-distribusi-sembako-pelosok",
-          title: "Relawan Distribusi Sembako Pelosok",
-          category: "Relawan",
-          location: "YAKESMA Center", city: "Jakarta", online: false,
-          date: "2026-08-30", timeStart: "06:00", timeEnd: "selesai",
-          price: 0, quota: 60, registered: 41,
-          gradient: ["#28a840", "#1f9036"], emoji: "🤝",
-          excerpt: "Jadi relawan pengemasan dan distribusi sembako untuk keluarga prasejahtera.",
-          about: [
+          "slug": "relawan-distribusi-sembako-pelosok",
+          "title": "Relawan Distribusi Sembako Pelosok",
+          "category": "Relawan",
+          "speaker": "",
+          "location": "YAKESMA Center",
+          "city": "Jakarta",
+          "online": false,
+          "date": "2026-08-30",
+          "timeStart": "06:00",
+          "timeEnd": "selesai",
+          "price": 0,
+          "quota": 60,
+          "registered": 41,
+          "gradient": [
+            "#28a840",
+            "#1f9036"
+          ],
+          "emoji": "🤝",
+          "excerpt": "Jadi relawan pengemasan dan distribusi sembako untuk keluarga prasejahtera.",
+          "about": [
             "Kami membuka pendaftaran relawan untuk membantu pengemasan dan penyaluran paket sembako ke wilayah pelosok. Tidak perlu pengalaman khusus — cukup niat baik dan semangat berbagi.",
-            "Konsumsi dan transport disediakan panitia. Kuota terbatas 60 relawan.",
+            "Konsumsi dan transport disediakan panitia. Kuota terbatas 60 relawan."
           ],
-          benefits: ["Sertifikat relawan YAKESMA", "Konsumsi & transport lokal", "Pengalaman & jejaring kebaikan"],
+          "benefits": [
+            "Sertifikat relawan YAKESMA",
+            "Konsumsi & transport lokal",
+            "Pengalaman & jejaring kebaikan"
+          ]
         },
         {
-          slug: "kelas-parenting-islami-generasi-qurani",
-          title: "Kelas Parenting Islami: Mendidik Generasi Qur'ani",
-          category: "Kelas", speaker: "Bunda Rahma Firdausi, M.Psi.",
-          location: "Online (Zoom)", city: "Online", online: true,
-          date: "2026-09-13", timeStart: "09:00", timeEnd: "11:00",
-          price: 50000, quota: 150, registered: 88,
-          gradient: ["#f6b700", "#28a840"], emoji: "👨‍👩‍👧",
-          excerpt: "Bekal mendidik anak dengan nilai Qur'ani sejak dini bagi para orang tua.",
-          about: [
+          "slug": "kelas-parenting-islami-generasi-qurani",
+          "title": "Kelas Parenting Islami: Mendidik Generasi Qur'ani",
+          "category": "Kelas",
+          "speaker": "Bunda Rahma Firdausi, M.Psi.",
+          "location": "Online (Zoom)",
+          "city": "Online",
+          "online": true,
+          "date": "2026-09-13",
+          "timeStart": "09:00",
+          "timeEnd": "11:00",
+          "price": 50000,
+          "quota": 150,
+          "registered": 88,
+          "gradient": [
+            "#f6b700",
+            "#28a840"
+          ],
+          "emoji": "👨‍👩‍👧",
+          "excerpt": "Bekal mendidik anak dengan nilai Qur'ani sejak dini bagi para orang tua.",
+          "about": [
             "Kelas praktis bagi ayah dan bunda untuk menanamkan akhlak dan kecintaan pada Al-Qur'an sejak dini. Dibawakan oleh psikolog keluarga dengan pendekatan yang mudah diterapkan di rumah.",
-            "Termasuk sesi tanya-jawab dan lembar aktivitas keluarga.",
+            "Termasuk sesi tanya-jawab dan lembar aktivitas keluarga."
           ],
-          benefits: ["Sesi live 2 jam + rekaman", "E-book panduan parenting Qur'ani", "E-sertifikat peserta"],
+          "benefits": [
+            "Sesi live 2 jam + rekaman",
+            "E-book panduan parenting Qur'ani",
+            "E-sertifikat peserta"
+          ]
         },
         {
-          slug: "festival-anak-sholeh-bazar-umkm",
-          title: "Festival Anak Sholeh & Bazar UMKM",
-          category: "Sosial",
-          location: "Lapangan Merdeka", city: "Depok", online: false,
-          date: "2026-09-21", timeStart: "08:00", timeEnd: "16:00",
-          price: 0, quota: 800, registered: 226,
-          gradient: ["#f58634", "#185838"], emoji: "🎪",
-          excerpt: "Lomba anak, dongeng islami, dan bazar UMKM binaan YAKESMA.",
-          about: [
+          "slug": "festival-anak-sholeh-bazar-umkm",
+          "title": "Festival Anak Sholeh & Bazar UMKM",
+          "category": "Sosial",
+          "speaker": "",
+          "location": "Lapangan Merdeka",
+          "city": "Depok",
+          "online": false,
+          "date": "2026-09-21",
+          "timeStart": "08:00",
+          "timeEnd": "16:00",
+          "price": 0,
+          "quota": 800,
+          "registered": 226,
+          "gradient": [
+            "#f58634",
+            "#185838"
+          ],
+          "emoji": "🎪",
+          "excerpt": "Lomba anak, dongeng islami, dan bazar UMKM binaan YAKESMA.",
+          "about": [
             "Festival keluarga yang menghadirkan lomba anak sholeh, panggung dongeng islami, dan bazar produk UMKM binaan YAKESMA. Gratis dan terbuka untuk umum.",
-            "Ajak si kecil merasakan keseruan sambil mendukung UMKM mustahik naik kelas.",
+            "Ajak si kecil merasakan keseruan sambil mendukung UMKM mustahik naik kelas."
           ],
-          benefits: ["Akses seluruh area festival", "Ragam lomba & hadiah untuk anak", "Voucher belanja bazar"],
+          "benefits": [
+            "Akses seluruh area festival",
+            "Ragam lomba & hadiah untuk anak",
+            "Voucher belanja bazar"
+          ]
         },
         {
-          slug: "program-wakaf-quran-santunan-guru-ngaji",
-          title: "Program Wakaf Qur'an & Santunan Guru Ngaji",
-          category: "Sosial",
-          location: "Program Nasional", city: "Online", online: true,
-          date: "2026-10-05", timeStart: "08:00", timeEnd: "selesai",
-          price: 250000, quota: 500, registered: 132,
-          gradient: ["#1f9036", "#f6b700"], emoji: "🌙",
-          excerpt: "Wakafkan Al-Qur'an ke pelosok dan bantu kesejahteraan para guru ngaji.",
-          about: [
-            "Satu paket wakaf senilai Rp250.000 mencakup pengadaan mushaf Al-Qur'an untuk santri di pelosok serta santunan untuk para guru ngaji yang mengabdi tanpa lelah.",
-            "Program berjalan sepanjang tahun. Anda akan menerima laporan penyaluran secara berkala.",
+          "slug": "program-wakaf-quran-santunan-guru-ngaji",
+          "title": "Program Wakaf Qur'an & Santunan Guru Ngaji",
+          "category": "Sosial",
+          "speaker": "",
+          "location": "Program Nasional",
+          "city": "Online",
+          "online": true,
+          "date": "2026-10-05",
+          "timeStart": "08:00",
+          "timeEnd": "selesai",
+          "price": 250000,
+          "quota": 500,
+          "registered": 132,
+          "gradient": [
+            "#1f9036",
+            "#f6b700"
           ],
-          benefits: ["Sertifikat wakaf atas nama Anda", "Laporan penyaluran berkala", "Doa dari para penerima manfaat"],
-        },
+          "emoji": "🌙",
+          "excerpt": "Wakafkan Al-Qur'an ke pelosok dan bantu kesejahteraan para guru ngaji.",
+          "about": [
+            "Satu paket wakaf senilai Rp250.000 mencakup pengadaan mushaf Al-Qur'an untuk santri di pelosok serta santunan untuk para guru ngaji yang mengabdi tanpa lelah.",
+            "Program berjalan sepanjang tahun. Anda akan menerima laporan penyaluran secara berkala."
+          ],
+          "benefits": [
+            "Sertifikat wakaf atas nama Anda",
+            "Laporan penyaluran berkala",
+            "Doa dari para penerima manfaat"
+          ]
+        }
       ];
 
-      /* ====================== RESOLUSI DATA (data.js / pratinjau admin) ====================== */
-      const _override = (function () {
-        try {
-          if (new URLSearchParams(location.search).get("preview") === "1") {
-            const w = JSON.parse(localStorage.getItem("yakesma_admin_data") || "null");
-            if (w) return w;
-          }
-        } catch (e) {}
-        return (typeof window !== "undefined" && window.YAKESMA_DATA) || null;
-      })();
+      /* ====================== RESOLUSI DATA (API live → cache lokal → bawaan) ====================== */
+      const CONTENT_CACHE_KEY = "yakesma_content_cache_v1";
+      const CONTENT_PROMISE = window.__YAKESMA_CONTENT_PROMISE__ || Promise.resolve(null);
 
-      const SITE = Object.assign({}, _DEFAULT_SITE, (_override && _override.site) || {});
-      SITE.colors = Object.assign(
-        { green: "#28a840", dark: "#185838", gold: "#f6b700", orange: "#f58634" },
-        SITE.colors || {}
-      );
-      const CATEGORIES =
-        _override && _override.categories && _override.categories.length
-          ? _override.categories
-          : _DEFAULT_CATEGORIES;
-      const EVENTS =
-        _override && _override.events && _override.events.length
-          ? _override.events
-          : _DEFAULT_EVENTS;
+      function readCachedContent() {
+        try {
+          const raw = JSON.parse(localStorage.getItem(CONTENT_CACHE_KEY) || "null");
+          if (raw && raw.events && raw.events.length) return raw;
+        } catch (e) {}
+        return null;
+      }
+      function cacheContent(payload) {
+        if (!payload || !payload.events || !payload.events.length) return;
+        try {
+          localStorage.setItem(CONTENT_CACHE_KEY, JSON.stringify({
+            site: payload.site, categories: payload.categories, events: payload.events,
+          }));
+        } catch (e) {}
+      }
+
+      // let (bukan const) — dipakai oleh komponen sebagai closure biasa, jadi
+      // begitu boot() menimpa nilainya dengan data live, render ulang otomatis
+      // memakai isi terbaru tanpa perlu mengubah struktur komponen.
+      let SITE, CATEGORIES, EVENTS;
+      function applyContent(payload) {
+        const override = payload && payload.events && payload.events.length ? payload : null;
+        SITE = Object.assign({}, _DEFAULT_SITE, (override && override.site) || {});
+        SITE.colors = Object.assign(
+          { green: "#28a840", dark: "#185838", gold: "#f6b700", orange: "#f58634" },
+          SITE.colors || {}
+        );
+        CATEGORIES = override && override.categories && override.categories.length ? override.categories : _DEFAULT_CATEGORIES;
+        EVENTS = override && override.events && override.events.length ? override.events : _DEFAULT_EVENTS;
+      }
+      applyContent(readCachedContent());
 
       const getEvent = (slug) => EVENTS.find((e) => e.slug === slug);
 
@@ -1253,7 +1445,7 @@
       }
 
       /* Terapkan warna brand dari data ke Tailwind (Play CDN) sebelum render */
-      (function applyBrandColors() {
+      function applyBrandColors() {
         try {
           const c = SITE.colors;
           if (window.tailwind && c) {
@@ -1279,9 +1471,44 @@
             if (tailwind.refresh) tailwind.refresh();
           }
         } catch (e) {}
-      })();
+      }
 
-      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+      /* ============================ BOOT ============================
+         Render sekali secepat mungkin (cache lokal / bawaan), lalu — begitu
+         konten live datang (di-race dengan timeout 2.5 detik supaya cold-start
+         Vercel/koneksi lambat tak menahan tampilan awal) — render ulang
+         dengan data terkini. Kalau API gagal total, situs tetap tampil apa
+         adanya (fallback), bukan kosong/rusak. */
+      (async function boot() {
+        const root = ReactDOM.createRoot(document.getElementById("root"));
+
+        let resolved = null;
+        try {
+          resolved = await Promise.race([
+            CONTENT_PROMISE,
+            new Promise((resolve) => setTimeout(() => resolve(null), 2500)),
+          ]);
+        } catch (e) {}
+
+        if (resolved) {
+          applyContent(resolved);
+          cacheContent(resolved);
+          applyBrandColors();
+          root.render(<App key="live" />);
+          return;
+        }
+
+        applyBrandColors();
+        root.render(<App key="fallback" />);
+
+        CONTENT_PROMISE.then((data) => {
+          if (!data) return;
+          applyContent(data);
+          cacheContent(data);
+          applyBrandColors();
+          root.render(<App key="live" />);
+        }).catch(() => {});
+      })();
     </script>
   </body>
 </html>
