@@ -1017,31 +1017,22 @@
           <Container className="space-y-5">
             <Link to="/event" className="inline-flex items-center gap-1.5 text-sm font-semibold text-ink/60 transition hover:text-brand-dark"><IconArrowLeft className="size-4" />Kembali ke Event</Link>
             <div className="flex flex-col gap-6 lg:grid lg:grid-cols-3 lg:gap-8">
-              <div className="space-y-6 lg:col-span-2 lg:col-start-1 lg:row-start-1">
-                <EventPoster event={event} className="aspect-[16/10] shadow-lg shadow-brand/10 sm:aspect-[16/9]" />
-                <div>
-                  <span className="inline-block rounded-full bg-brand-50 px-3 py-1 text-xs font-bold text-brand-700">{event.category}</span>
-                  <h1 className="mt-3 text-2xl font-extrabold leading-tight text-brand-dark sm:text-3xl">{event.title}</h1>
-                  <p className="mt-2 text-ink/70">{event.excerpt}</p>
+              <div className="space-y-8 lg:col-span-2 lg:col-start-1">
+                <div className="space-y-6">
+                  <EventPoster event={event} className="aspect-[16/10] shadow-lg shadow-brand/10 sm:aspect-[16/9]" />
+                  <div>
+                    <span className="inline-block rounded-full bg-brand-50 px-3 py-1 text-xs font-bold text-brand-700">{event.category}</span>
+                    <h1 className="mt-3 text-2xl font-extrabold leading-tight text-brand-dark sm:text-3xl">{event.title}</h1>
+                    <p className="mt-2 text-ink/70">{event.excerpt}</p>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Fact icon={IconCalendar} label="Tanggal" value={formatTanggal(event.date)} />
+                    <Fact icon={IconClock} label="Waktu" value={formatWaktu(event.timeStart, event.timeEnd)} />
+                    <Fact icon={IconMapPin} label="Lokasi" value={event.online ? event.location : event.location + ", " + event.city} />
+                    <Fact icon={IconUsers} label="Kuota" value={event.registered + " dari " + event.quota + " terisi"} />
+                  </div>
                 </div>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Fact icon={IconCalendar} label="Tanggal" value={formatTanggal(event.date)} />
-                  <Fact icon={IconClock} label="Waktu" value={formatWaktu(event.timeStart, event.timeEnd)} />
-                  <Fact icon={IconMapPin} label="Lokasi" value={event.online ? event.location : event.location + ", " + event.city} />
-                  <Fact icon={IconUsers} label="Kuota" value={event.registered + " dari " + event.quota + " terisi"} />
-                </div>
-              </div>
 
-              <aside className="space-y-4 lg:sticky lg:top-20 lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:self-start">
-                <RegistrationForm event={event} />
-                <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
-                  <div className="flex items-center justify-between text-sm"><span className="text-ink/60">Kuota terisi</span><span className="font-bold text-brand-dark">{event.registered}/{event.quota}</span></div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-brand-50"><div className="h-full rounded-full bg-brand" style={{ width: pct + "%" }} /></div>
-                  <p className="mt-2 text-xs text-ink/55">{sisa > 0 ? "Sisa " + sisa + " kursi tersedia" : "Kuota penuh"}</p>
-                </div>
-              </aside>
-
-              <div className="space-y-8 lg:col-span-2 lg:col-start-1 lg:row-start-2">
                 <Section title="Deskripsi">
                   <div className="space-y-3 leading-relaxed text-ink/75">{event.about.map((p, i) => <p key={i}>{p}</p>)}</div>
                 </Section>
@@ -1064,6 +1055,15 @@
                   </Section>
                 )}
               </div>
+
+              <aside className="space-y-4 lg:sticky lg:top-20 lg:col-start-3 lg:self-start">
+                <RegistrationForm event={event} />
+                <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between text-sm"><span className="text-ink/60">Kuota terisi</span><span className="font-bold text-brand-dark">{event.registered}/{event.quota}</span></div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-brand-50"><div className="h-full rounded-full bg-brand" style={{ width: pct + "%" }} /></div>
+                  <p className="mt-2 text-xs text-ink/55">{sisa > 0 ? "Sisa " + sisa + " kursi tersedia" : "Kuota penuh"}</p>
+                </div>
+              </aside>
             </div>
           </Container>
         );
