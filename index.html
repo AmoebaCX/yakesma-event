@@ -687,7 +687,7 @@
                 onChange={(e) => setShipping((s) => Object.assign({}, s, { address: e.target.value }))}
                 placeholder="Nama jalan, nomor rumah, RT/RW, patokan…" className={selCls} />
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3">
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Provinsi</label>
                 <select value={shipping.provinceId} onChange={(e) => onProvinceChange(e.target.value)}
@@ -721,7 +721,7 @@
                 </select>
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3">
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kode Pos</label>
                 <input inputMode="numeric" maxLength={5} value={shipping.postalCode}
@@ -729,7 +729,7 @@
                   placeholder="80111" className={selCls} />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Ukuran Kaos</label>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Ukuran Jersey</label>
                 <select value={shipping.shirtSize}
                   onChange={(e) => setShipping((s) => Object.assign({}, s, { shirtSize: e.target.value }))} className={selCls}>
                   <option value="">Pilih ukuran</option>
@@ -789,7 +789,7 @@
               setError("Provinsi, kota, kecamatan, dan kelurahan wajib diisi."); return;
             }
             if (!/^\d{5}$/.test(shipping.postalCode)) { setError("Kode pos harus 5 digit angka."); return; }
-            if (!shipping.shirtSize) { setError("Pilih ukuran kaos."); return; }
+            if (!shipping.shirtSize) { setError("Pilih ukuran jersey."); return; }
             if (!shipping.courier) { setError("Pilih kurir pengiriman."); return; }
           }
           setError("");
