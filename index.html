@@ -95,10 +95,32 @@
         { href: "/akun", label: "Akun", icon: "user" },
       ];
 
-      const _DEFAULT_CATEGORIES = ["Kajian", "Webinar", "Kelas", "Seminar", "Sosial", "Relawan"];
+      const _DEFAULT_CATEGORIES = ["Kajian", "Webinar", "Kelas", "Seminar", "Sosial", "Relawan", "Lari Virtual"];
 
       /* ============================ DATA EVENT (fallback bawaan) ============================ */
       const _DEFAULT_EVENTS = [
+        {
+          slug: "bali-international-virtual-run",
+          title: "Bali International Virtual Run",
+          category: "Lari Virtual",
+          location: "Virtual (Lari di Mana Saja)", city: "Online", online: true,
+          date: "2026-08-17", timeStart: "00:00", timeEnd: "23:59",
+          price: 250000, quota: 1000, registered: 0,
+          requiresShipping: true,
+          gradient: ["#f58634", "#f6b700"], emoji: "🏃",
+          excerpt: "Lari di mana saja, kapan saja, sepanjang 17 Agustus 2026 — rayakan kemerdekaan sambil berbagi kebaikan.",
+          about: [
+            "Bali International Virtual Run mengajak Anda berlari 5K, 10K, atau jarak pilihan Anda sendiri — di kota mana pun Anda berada — dalam rangka memperingati Hari Kemerdekaan RI sekaligus mendukung program kebaikan YAKESMA.",
+            "Cukup daftar, lari kapan saja sepanjang 17 Agustus 2026, lalu dokumentasikan aktivitas Anda. Jersey eksklusif dan medali finisher akan dikirim langsung ke alamat Anda setelah event berakhir.",
+          ],
+          benefits: [
+            "Jersey eksklusif Bali International Virtual Run",
+            "Medali finisher",
+            "E-sertifikat resmi",
+            "Sebagian biaya pendaftaran disalurkan untuk program sosial YAKESMA",
+          ],
+          featured: true,
+        },
         {
           slug: "kajian-akbar-keajaiban-sedekah",
           title: "Kajian Akbar: Keajaiban Sedekah",
@@ -345,6 +367,25 @@
         }
       }
 
+      /* ============ WILAYAH INDONESIA (dropdown berjenjang) ============ */
+      const WILAYAH_BASE = "https://www.emsifa.com/api-wilayah-indonesia/api";
+      async function fetchWilayah(path) {
+        try {
+          const res = await fetch(WILAYAH_BASE + path);
+          if (!res.ok) return [];
+          return await res.json();
+        } catch (e) {
+          return [];
+        }
+      }
+      const fetchProvinces = () => fetchWilayah("/provinces.json");
+      const fetchRegencies = (provinceId) => fetchWilayah("/regencies/" + provinceId + ".json");
+      const fetchDistricts = (regencyId) => fetchWilayah("/districts/" + regencyId + ".json");
+      const fetchVillages = (districtId) => fetchWilayah("/villages/" + districtId + ".json");
+
+      const SHIRT_SIZES = ["S", "M", "L", "XL", "XXL", "XXXL"];
+      const COURIERS = ["JNE", "J&T", "POS Indonesia"];
+
       /* ============================ ROUTER (hash) ============================ */
       function parseHash() {
         const raw = (location.hash || "").replace(/^#/, "") || "/";
@@ -579,6 +620,135 @@
         );
       }
 
+      function emptyShipping() {
+        return {
+          address: "", provinceId: "", province: "", cityId: "", city: "",
+          districtId: "", district: "", subdistrictId: "", subdistrict: "",
+          postalCode: "", shirtSize: "", courier: "",
+        };
+      }
+
+      function ShippingFields({ shipping, setShipping }) {
+        const [provinces, setProvinces] = useState([]);
+        const [regencies, setRegencies] = useState([]);
+        const [districts, setDistricts] = useState([]);
+        const [villages, setVillages] = useState([]);
+        const [loadingLevel, setLoadingLevel] = useState("province");
+
+        useEffect(() => {
+          fetchProvinces().then((list) => { setProvinces(list); setLoadingLevel(null); });
+        }, []);
+
+        function onProvinceChange(id) {
+          const found = provinces.find((p) => p.id === id);
+          setShipping((s) => Object.assign({}, s, {
+            provinceId: id, province: found ? found.name : "",
+            cityId: "", city: "", districtId: "", district: "", subdistrictId: "", subdistrict: "",
+          }));
+          setRegencies([]); setDistricts([]); setVillages([]);
+          if (!id) return;
+          setLoadingLevel("regency");
+          fetchRegencies(id).then((list) => { setRegencies(list); setLoadingLevel(null); });
+        }
+        function onCityChange(id) {
+          const found = regencies.find((r) => r.id === id);
+          setShipping((s) => Object.assign({}, s, {
+            cityId: id, city: found ? found.name : "",
+            districtId: "", district: "", subdistrictId: "", subdistrict: "",
+          }));
+          setDistricts([]); setVillages([]);
+          if (!id) return;
+          setLoadingLevel("district");
+          fetchDistricts(id).then((list) => { setDistricts(list); setLoadingLevel(null); });
+        }
+        function onDistrictChange(id) {
+          const found = districts.find((d) => d.id === id);
+          setShipping((s) => Object.assign({}, s, {
+            districtId: id, district: found ? found.name : "", subdistrictId: "", subdistrict: "",
+          }));
+          setVillages([]);
+          if (!id) return;
+          setLoadingLevel("village");
+          fetchVillages(id).then((list) => { setVillages(list); setLoadingLevel(null); });
+        }
+        function onVillageChange(id) {
+          const found = villages.find((v) => v.id === id);
+          setShipping((s) => Object.assign({}, s, { subdistrictId: id, subdistrict: found ? found.name : "" }));
+        }
+
+        const selCls = "w-full rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:bg-ink/5 disabled:text-ink/40";
+
+        return (
+          <div className="space-y-3 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
+            <p className="text-sm font-bold text-brand-dark">Info Pengiriman</p>
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Alamat Lengkap</label>
+              <textarea rows={2} value={shipping.address}
+                onChange={(e) => setShipping((s) => Object.assign({}, s, { address: e.target.value }))}
+                placeholder="Nama jalan, nomor rumah, RT/RW, patokan…" className={selCls} />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Provinsi</label>
+                <select value={shipping.provinceId} onChange={(e) => onProvinceChange(e.target.value)}
+                  disabled={loadingLevel === "province"} className={selCls}>
+                  <option value="">{loadingLevel === "province" ? "Memuat…" : "Pilih provinsi"}</option>
+                  {provinces.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kota/Kabupaten</label>
+                <select value={shipping.cityId} onChange={(e) => onCityChange(e.target.value)}
+                  disabled={!shipping.provinceId || loadingLevel === "regency"} className={selCls}>
+                  <option value="">{loadingLevel === "regency" ? "Memuat…" : "Pilih kota/kabupaten"}</option>
+                  {regencies.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kecamatan</label>
+                <select value={shipping.districtId} onChange={(e) => onDistrictChange(e.target.value)}
+                  disabled={!shipping.cityId || loadingLevel === "district"} className={selCls}>
+                  <option value="">{loadingLevel === "district" ? "Memuat…" : "Pilih kecamatan"}</option>
+                  {districts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kelurahan/Desa</label>
+                <select value={shipping.subdistrictId} onChange={(e) => onVillageChange(e.target.value)}
+                  disabled={!shipping.districtId || loadingLevel === "village"} className={selCls}>
+                  <option value="">{loadingLevel === "village" ? "Memuat…" : "Pilih kelurahan/desa"}</option>
+                  {villages.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kode Pos</label>
+                <input inputMode="numeric" maxLength={5} value={shipping.postalCode}
+                  onChange={(e) => setShipping((s) => Object.assign({}, s, { postalCode: e.target.value.replace(/\D/g, "").slice(0, 5) }))}
+                  placeholder="80111" className={selCls} />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Ukuran Kaos</label>
+                <select value={shipping.shirtSize}
+                  onChange={(e) => setShipping((s) => Object.assign({}, s, { shirtSize: e.target.value }))} className={selCls}>
+                  <option value="">Pilih ukuran</option>
+                  {SHIRT_SIZES.map((sz) => <option key={sz} value={sz}>{sz}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kurir</label>
+                <select value={shipping.courier}
+                  onChange={(e) => setShipping((s) => Object.assign({}, s, { courier: e.target.value }))} className={selCls}>
+                  <option value="">Pilih kurir</option>
+                  {COURIERS.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
       function RegistrationForm({ event }) {
         const free = event.price <= 0;
         const [name, setName] = useState("");
@@ -589,6 +759,8 @@
         const [done, setDone] = useState(null);
         const [already, setAlready] = useState(null);
         const [submitting, setSubmitting] = useState(false);
+        const [shipping, setShipping] = useState(emptyShipping);
+        const needsShipping = !!event.requiresShipping;
 
         useEffect(() => {
           const acc = getAccount();
@@ -611,6 +783,15 @@
           e.preventDefault();
           if (!name.trim() || !email.trim() || !phone.trim()) { setError("Mohon lengkapi nama, email, dan nomor WhatsApp."); return; }
           if (!/^\S+@\S+\.\S+$/.test(email)) { setError("Format email belum benar."); return; }
+          if (needsShipping) {
+            if (!shipping.address.trim()) { setError("Alamat wajib diisi."); return; }
+            if (!shipping.province || !shipping.city || !shipping.district || !shipping.subdistrict) {
+              setError("Provinsi, kota, kecamatan, dan kelurahan wajib diisi."); return;
+            }
+            if (!/^\d{5}$/.test(shipping.postalCode)) { setError("Kode pos harus 5 digit angka."); return; }
+            if (!shipping.shirtSize) { setError("Pilih ukuran kaos."); return; }
+            if (!shipping.courier) { setError("Pilih kurir pengiriman."); return; }
+          }
           setError("");
           setSubmitting(true);
           const result = await apiRegister({
@@ -624,6 +805,16 @@
             phone: phone.trim(),
             quantity: qty,
             unitPrice: event.price,
+            shipping: needsShipping ? {
+              address: shipping.address.trim(),
+              province: shipping.province,
+              city: shipping.city,
+              district: shipping.district,
+              subdistrict: shipping.subdistrict,
+              postalCode: shipping.postalCode,
+              shirtSize: shipping.shirtSize,
+              courier: shipping.courier,
+            } : undefined,
           });
           setSubmitting(false);
           if (!result.ok) { setError(result.error); return; }
@@ -687,6 +878,11 @@
               <div className="mt-4 flex items-center justify-between border-t border-brand-50 pt-4">
                 <span className="text-sm font-semibold text-ink/60">Total</span>
                 <span className="text-xl font-extrabold text-brand-dark">{formatRupiah(event.price * qty)}</span>
+              </div>
+            )}
+            {needsShipping && (
+              <div className="mt-4">
+                <ShippingFields shipping={shipping} setShipping={setShipping} />
               </div>
             )}
             {error && <p className="mt-3 rounded-lg bg-orange/10 px-3 py-2 text-sm font-medium text-orange">{error}</p>}
