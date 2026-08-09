@@ -1226,7 +1226,7 @@
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
           } catch (e) {
-            window.prompt("Salin link event ini:", url);
+            try { window.prompt("Salin link event ini:", url); } catch (e2) {}
           }
         }
         return (
