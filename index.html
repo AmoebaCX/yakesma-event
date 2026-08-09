@@ -636,15 +636,17 @@
 
       function EventPoster({ event, className = "aspect-square", compact = false }) {
         const { day, month } = tanggalBadge(event.date);
+        // compact = kartu (kotak) di beranda/daftar event; !compact = hero halaman detail (lebar).
+        const img = compact ? (event.imageSquare || event.imageWide) : (event.imageWide || event.imageSquare);
         return (
           <div className={"relative overflow-hidden rounded-2xl " + className}
-            style={{ backgroundImage: event.image ? undefined : "linear-gradient(145deg," + event.gradient[0] + "," + event.gradient[1] + ")" }}>
-            {event.image ? (
-              <img src={event.image} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            style={{ backgroundImage: img ? undefined : "linear-gradient(145deg," + event.gradient[0] + "," + event.gradient[1] + ")" }}>
+            {img ? (
+              <img src={img} alt="" className="absolute inset-0 h-full w-full object-cover" />
             ) : (
               <span className="pointer-events-none absolute -bottom-5 -right-3 select-none text-[7rem] leading-none opacity-15">{event.emoji}</span>
             )}
-            <div className="absolute inset-0" style={{ backgroundImage: event.image
+            <div className="absolute inset-0" style={{ backgroundImage: img
               ? "linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0.05) 55%, transparent)"
               : "radial-gradient(70% 55% at 18% 8%, rgba(255,255,255,0.25), transparent 60%)" }} />
             <div className="relative flex h-full flex-col justify-between p-4 sm:p-5">
