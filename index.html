@@ -636,9 +636,15 @@
         const { day, month } = tanggalBadge(event.date);
         return (
           <div className={"relative overflow-hidden rounded-2xl " + className}
-            style={{ backgroundImage: "linear-gradient(145deg," + event.gradient[0] + "," + event.gradient[1] + ")" }}>
-            <span className="pointer-events-none absolute -bottom-5 -right-3 select-none text-[7rem] leading-none opacity-15">{event.emoji}</span>
-            <div className="absolute inset-0" style={{ backgroundImage: "radial-gradient(70% 55% at 18% 8%, rgba(255,255,255,0.25), transparent 60%)" }} />
+            style={{ backgroundImage: event.image ? undefined : "linear-gradient(145deg," + event.gradient[0] + "," + event.gradient[1] + ")" }}>
+            {event.image ? (
+              <img src={event.image} alt="" className="absolute inset-0 h-full w-full object-cover" />
+            ) : (
+              <span className="pointer-events-none absolute -bottom-5 -right-3 select-none text-[7rem] leading-none opacity-15">{event.emoji}</span>
+            )}
+            <div className="absolute inset-0" style={{ backgroundImage: event.image
+              ? "linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0.05) 55%, transparent)"
+              : "radial-gradient(70% 55% at 18% 8%, rgba(255,255,255,0.25), transparent 60%)" }} />
             <div className="relative flex h-full flex-col justify-between p-4 sm:p-5">
               <div className="flex items-start justify-between gap-2">
                 <span className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-white/90">YAKESMA</span>
