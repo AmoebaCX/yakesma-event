@@ -1209,8 +1209,16 @@
       }
 
       /** Link langsung ke landing page event ini — dipakai buat share & tujuan iklan (mis. Meta Ads). */
+      /**
+       * Link lewat /share/:slug (yakesma-api), bukan langsung #/event/:slug.
+       * Situs ini SPA murni sisi-klien (hash routing) sehingga crawler
+       * (Facebook/WhatsApp) tak bisa melihat judul/foto per-event kalau
+       * link hash dibagikan langsung — hanya lihat meta tag generik.
+       * /share/:slug di-render server (Next.js) dengan og:title/og:image
+       * sesuai event, lalu otomatis mengalihkan manusia ke halaman aslinya.
+       */
       function eventShareUrl(event) {
-        return location.origin + location.pathname + "#/event/" + event.slug;
+        return API_BASE + "/share/" + event.slug;
       }
 
       function ShareButton({ event }) {
