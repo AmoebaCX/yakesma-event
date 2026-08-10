@@ -628,8 +628,19 @@
       const fetchDistricts = (regencyId) => fetchWilayah("/districts/" + regencyId + ".json");
       const fetchVillages = (districtId) => fetchWilayah("/villages/" + districtId + ".json");
 
-      const SHIRT_SIZES = ["S", "M", "L", "XL", "XXL", "XXXL"];
-      const COURIERS = ["JNE", "J&T", "POS Indonesia"];
+      const SHIRT_SIZES = ["S", "M", "L", "XL", "2XL", "3XL", "4XL"];
+      const SHIRT_SIZE_SURCHARGE = { S: 0, M: 0, L: 0, XL: 0, "2XL": 25000, "3XL": 50000, "4XL": 75000 };
+      const COURIER = "POS Indonesia";
+      // Tarif flat per zona POS Indonesia (Kilat Khusus, paket ringan <1kg) — sinkron
+      // dengan yakesma-api/src/lib/validate.ts dan admin/index.html.
+      function posShippingFee(province) {
+        const p = (province || "").toUpperCase();
+        if (p.includes("PAPUA") || p.includes("MALUKU")) return 50000;
+        if (p.includes("JAWA") || p.includes("JAKARTA") || p.includes("YOGYAKARTA") || p.includes("BANTEN") || p.includes("BALI")) {
+          return 20000;
+        }
+        return 35000;
+      }
 
       /* ============================ ROUTER (hash) ============================ */
       function parseHash() {
@@ -880,7 +891,7 @@
         return {
           address: "", provinceId: "", province: "", cityId: "", city: "",
           districtId: "", district: "", subdistrictId: "", subdistrict: "",
-          postalCode: "", shirtSizes: [], courier: "",
+          postalCode: "", shirtSizes: [], courier: COURIER,
         };
       }
 
@@ -1010,11 +1021,10 @@
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kurir</label>
-                <select value={shipping.courier}
-                  onChange={(e) => setShipping((s) => Object.assign({}, s, { courier: e.target.value }))} className={selCls}>
-                  <option value="">Pilih kurir</option>
-                  {COURIERS.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <div className="flex items-center justify-between rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm">
+                  <span className="font-semibold text-brand-dark">POS Indonesia</span>
+                  <span className="text-ink/55">{shipping.province ? "Ongkir " + formatRupiah(posShippingFee(shipping.province)) : "Ongkir dihitung setelah provinsi dipilih"}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1033,6 +1043,11 @@
         const [submitting, setSubmitting] = useState(false);
         const [shipping, setShipping] = useState(emptyShipping);
         const needsShipping = !!event.requiresShipping;
+        const shirtSurchargeTotal = needsShipping
+          ? shipping.shirtSizes.reduce((sum, sz) => sum + (SHIRT_SIZE_SURCHARGE[sz] || 0), 0)
+          : 0;
+        const shippingFeeTotal = needsShipping && shipping.province ? posShippingFee(shipping.province) : 0;
+        const grandTotal = event.price * qty + shirtSurchargeTotal + shippingFeeTotal;
 
         useEffect(() => {
           const acc = getAccount();
@@ -1075,7 +1090,6 @@
             if (shipping.shirtSizes.length !== qty || shipping.shirtSizes.some((sz) => !sz)) {
               setError("Pilih ukuran jersey untuk setiap peserta."); return;
             }
-            if (!shipping.courier) { setError("Pilih kurir pengiriman."); return; }
           }
           setError("");
           setSubmitting(true);
@@ -1160,9 +1174,27 @@
               </div>
             </div>
             {!free && (
-              <div className="mt-4 flex items-center justify-between border-t border-brand-50 pt-4">
-                <span className="text-sm font-semibold text-ink/60">Total</span>
-                <span className="text-xl font-extrabold text-brand-dark">{formatRupiah(event.price * qty)}</span>
+              <div className="mt-4 space-y-1.5 border-t border-brand-50 pt-4">
+                <div className="flex items-center justify-between text-sm text-ink/60">
+                  <span>Tiket × {qty}</span>
+                  <span>{formatRupiah(event.price * qty)}</span>
+                </div>
+                {shirtSurchargeTotal > 0 && (
+                  <div className="flex items-center justify-between text-sm text-ink/60">
+                    <span>Tambahan ukuran jersey</span>
+                    <span>{formatRupiah(shirtSurchargeTotal)}</span>
+                  </div>
+                )}
+                {needsShipping && (
+                  <div className="flex items-center justify-between text-sm text-ink/60">
+                    <span>Ongkir POS Indonesia</span>
+                    <span>{shipping.province ? formatRupiah(shippingFeeTotal) : "—"}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-sm font-semibold text-ink/60">Total</span>
+                  <span className="text-xl font-extrabold text-brand-dark">{formatRupiah(grandTotal)}</span>
+                </div>
               </div>
             )}
             {needsShipping && (

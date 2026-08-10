@@ -591,6 +591,17 @@
         }
       }
 
+      // Sinkron dengan yakesma-api/src/lib/validate.ts dan yakesma-site/index.html —
+      // dipakai untuk menampilkan rincian biaya di panel Detail pendaftaran.
+      const SHIRT_SIZE_SURCHARGE = { S: 0, M: 0, L: 0, XL: 0, "2XL": 25000, "3XL": 50000, "4XL": 75000 };
+      function posShippingFee(province) {
+        const p = (province || "").toUpperCase();
+        if (p.includes("PAPUA") || p.includes("MALUKU")) return 50000;
+        if (p.includes("JAWA") || p.includes("JAKARTA") || p.includes("YOGYAKARTA") || p.includes("BANTEN") || p.includes("BALI")) {
+          return 20000;
+        }
+        return 35000;
+      }
       const REG_STATUS_LABEL = {
         free: { text: "Gratis", cls: "bg-brand-50 text-brand-700" },
         pending_transfer: { text: "Menunggu Konfirmasi", cls: "bg-gold/20 text-orange" },
@@ -694,6 +705,9 @@
                     {items.map((r) => {
                       const hasShipping = !!r.address;
                       const expanded = expandedId === r.id;
+                      const sizesArr = Array.isArray(r.shirt_sizes) ? r.shirt_sizes : (r.shirt_size ? [r.shirt_size] : []);
+                      const shirtSurcharge = sizesArr.reduce((sum, sz) => sum + (SHIRT_SIZE_SURCHARGE[sz] || 0), 0);
+                      const shippingFee = r.province ? posShippingFee(r.province) : 0;
                       return (
                         <React.Fragment key={r.id}>
                           <tr className="border-b border-slate-100 last:border-0">
@@ -742,8 +756,9 @@
                                   <p><span className="font-semibold text-ink/60">Kecamatan:</span> {r.district}</p>
                                   <p><span className="font-semibold text-ink/60">Kota/Kabupaten:</span> {r.city}</p>
                                   <p><span className="font-semibold text-ink/60">Provinsi:</span> {r.province}</p>
-                                  <p><span className="font-semibold text-ink/60">Ukuran Jersey:</span> {Array.isArray(r.shirt_sizes) && r.shirt_sizes.length ? r.shirt_sizes.join(", ") : (r.shirt_size || "-")}</p>
+                                  <p><span className="font-semibold text-ink/60">Ukuran Jersey:</span> {sizesArr.length ? sizesArr.join(", ") : "-"}</p>
                                   <p><span className="font-semibold text-ink/60">Kurir:</span> {r.courier}</p>
+                                  <p className="sm:col-span-2"><span className="font-semibold text-ink/60">Rincian Biaya:</span> Tiket {formatRupiah(r.unit_price * r.quantity)}{shirtSurcharge > 0 ? " + Ukuran jersey " + formatRupiah(shirtSurcharge) : ""}{shippingFee > 0 ? " + Ongkir " + formatRupiah(shippingFee) : ""} = {formatRupiah(r.total_amount)}</p>
                                 </div>
                               </td>
                             </tr>
