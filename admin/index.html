@@ -91,6 +91,7 @@
           gradient: ["#28a840", "#185838"], emoji: "🕌", imageSquare: "", imageWide: "", gallery: [],
           excerpt: "", about: [""], benefits: [""], featured: false,
           requiresShipping: false,
+          donationEnabled: false, donationLabel: "",
         };
       }
       async function loadContent() {
@@ -313,6 +314,15 @@
                 <Toggle label="Butuh info pengiriman (alamat, ukuran kaos, kurir) — mis. lari virtual"
                   checked={!!ev.requiresShipping} onChange={(v) => set("requiresShipping", v)} />
               </div>
+              <div className="sm:col-span-2 flex items-end pb-1">
+                <Toggle label="Aktifkan donasi tambahan (opsional saat pendaftaran)"
+                  checked={!!ev.donationEnabled} onChange={(v) => set("donationEnabled", v)} />
+              </div>
+              {ev.donationEnabled && (
+                <div className="sm:col-span-2">
+                  <Text label="Tujuan Donasi" value={ev.donationLabel} onChange={(v) => set("donationLabel", v)} placeholder="mis. Penanaman Pohon di Bali" />
+                </div>
+              )}
               <Text label="Tanggal" type="date" value={ev.date} onChange={(v) => set("date", v)} />
               <div className="grid grid-cols-2 gap-3">
                 <Text label="Mulai" value={ev.timeStart} onChange={(v) => set("timeStart", v)} placeholder="08:00" />
@@ -704,6 +714,8 @@
                   <tbody>
                     {items.map((r) => {
                       const hasShipping = !!r.address;
+                      const donationAmount = Number(r.donation_amount) || 0;
+                      const hasDetail = hasShipping || donationAmount > 0;
                       const expanded = expandedId === r.id;
                       const sizesArr = Array.isArray(r.shirt_sizes) ? r.shirt_sizes : (r.shirt_size ? [r.shirt_size] : []);
                       const shirtSurcharge = sizesArr.reduce((sum, sz) => sum + (SHIRT_SIZE_SURCHARGE[sz] || 0), 0);
@@ -724,7 +736,7 @@
                             <td className="px-3 py-2 font-mono text-xs">{r.ticket_code}</td>
                             <td className="px-3 py-2"><RegStatusBadge status={r.payment_status} /></td>
                             <td className="px-3 py-2">
-                              {hasShipping ? (
+                              {hasDetail ? (
                                 <button onClick={() => setExpandedId(expanded ? null : r.id)}
                                   className="rounded-lg border border-brand-100 px-2.5 py-1 text-xs font-semibold text-brand-dark hover:bg-brand-50">
                                   📦 {expanded ? "Tutup" : "Detail"}
@@ -746,19 +758,26 @@
                               </div>
                             </td>
                           </tr>
-                          {expanded && hasShipping && (
+                          {expanded && hasDetail && (
                             <tr className="border-b border-slate-100 bg-brand-50/40 last:border-0">
                               <td colSpan={8} className="px-3 py-3">
                                 <div className="grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
-                                  <p><span className="font-semibold text-ink/60">Alamat:</span> {r.address}</p>
-                                  <p><span className="font-semibold text-ink/60">Kode Pos:</span> {r.postal_code}</p>
-                                  <p><span className="font-semibold text-ink/60">Kelurahan:</span> {r.subdistrict}</p>
-                                  <p><span className="font-semibold text-ink/60">Kecamatan:</span> {r.district}</p>
-                                  <p><span className="font-semibold text-ink/60">Kota/Kabupaten:</span> {r.city}</p>
-                                  <p><span className="font-semibold text-ink/60">Provinsi:</span> {r.province}</p>
-                                  <p><span className="font-semibold text-ink/60">Ukuran Jersey:</span> {sizesArr.length ? sizesArr.join(", ") : "-"}</p>
-                                  <p><span className="font-semibold text-ink/60">Kurir:</span> {r.courier}</p>
-                                  <p className="sm:col-span-2"><span className="font-semibold text-ink/60">Rincian Biaya:</span> Tiket {formatRupiah(r.unit_price * r.quantity)}{shirtSurcharge > 0 ? " + Ukuran jersey " + formatRupiah(shirtSurcharge) : ""}{shippingFee > 0 ? " + Ongkir " + formatRupiah(shippingFee) : ""} = {formatRupiah(r.total_amount)}</p>
+                                  {hasShipping && (
+                                    <React.Fragment>
+                                      <p><span className="font-semibold text-ink/60">Alamat:</span> {r.address}</p>
+                                      <p><span className="font-semibold text-ink/60">Kode Pos:</span> {r.postal_code}</p>
+                                      <p><span className="font-semibold text-ink/60">Kelurahan:</span> {r.subdistrict}</p>
+                                      <p><span className="font-semibold text-ink/60">Kecamatan:</span> {r.district}</p>
+                                      <p><span className="font-semibold text-ink/60">Kota/Kabupaten:</span> {r.city}</p>
+                                      <p><span className="font-semibold text-ink/60">Provinsi:</span> {r.province}</p>
+                                      <p><span className="font-semibold text-ink/60">Ukuran Jersey:</span> {sizesArr.length ? sizesArr.join(", ") : "-"}</p>
+                                      <p><span className="font-semibold text-ink/60">Kurir:</span> {r.courier}</p>
+                                    </React.Fragment>
+                                  )}
+                                  {donationAmount > 0 && (
+                                    <p><span className="font-semibold text-ink/60">Donasi:</span> {formatRupiah(donationAmount)}</p>
+                                  )}
+                                  <p className="sm:col-span-2"><span className="font-semibold text-ink/60">Rincian Biaya:</span> Tiket {formatRupiah(r.unit_price * r.quantity)}{shirtSurcharge > 0 ? " + Ukuran jersey " + formatRupiah(shirtSurcharge) : ""}{shippingFee > 0 ? " + Ongkir " + formatRupiah(shippingFee) : ""}{donationAmount > 0 ? " + Donasi " + formatRupiah(donationAmount) : ""} = {formatRupiah(r.total_amount)}</p>
                                 </div>
                               </td>
                             </tr>

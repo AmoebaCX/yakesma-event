@@ -1031,6 +1031,32 @@
         );
       }
 
+      const DONATION_PRESETS = [25000, 50000, 100000, 250000];
+      function DonationField({ label, amount, setAmount }) {
+        return (
+          <div className="space-y-2.5 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
+            <p className="text-sm font-bold text-brand-dark">Donasi Tambahan (Opsional)</p>
+            {label && <p className="text-xs text-ink/60">{label}</p>}
+            <div className="flex flex-wrap gap-2">
+              {DONATION_PRESETS.map((p) => (
+                <button key={p} type="button"
+                  onClick={() => setAmount(amount === p ? 0 : p)}
+                  className={"rounded-lg border px-3 py-1.5 text-sm font-semibold transition " + (amount === p ? "border-brand bg-brand text-white" : "border-brand-100 bg-white text-brand-dark hover:bg-brand-50")}>
+                  {formatRupiah(p)}
+                </button>
+              ))}
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-ink/55">Jumlah lain (Rp)</label>
+              <input inputMode="numeric" value={amount ? String(amount) : ""}
+                onChange={(e) => setAmount(Math.min(10000000, Number(e.target.value.replace(/\D/g, "")) || 0))}
+                placeholder="0"
+                className="w-full rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20" />
+            </div>
+          </div>
+        );
+      }
+
       function RegistrationForm({ event }) {
         const free = event.price <= 0;
         const [name, setName] = useState("");
@@ -1042,12 +1068,14 @@
         const [already, setAlready] = useState(null);
         const [submitting, setSubmitting] = useState(false);
         const [shipping, setShipping] = useState(emptyShipping);
+        const [donation, setDonation] = useState(0);
         const needsShipping = !!event.requiresShipping;
+        const donationEnabled = !!event.donationEnabled;
         const shirtSurchargeTotal = needsShipping
           ? shipping.shirtSizes.reduce((sum, sz) => sum + (SHIRT_SIZE_SURCHARGE[sz] || 0), 0)
           : 0;
         const shippingFeeTotal = needsShipping && shipping.province ? posShippingFee(shipping.province) : 0;
-        const grandTotal = event.price * qty + shirtSurchargeTotal + shippingFeeTotal;
+        const grandTotal = event.price * qty + shirtSurchargeTotal + shippingFeeTotal + donation;
 
         useEffect(() => {
           const acc = getAccount();
@@ -1104,6 +1132,7 @@
             phone: phone.trim(),
             quantity: qty,
             unitPrice: event.price,
+            donationAmount: donation,
             shipping: needsShipping ? {
               address: shipping.address.trim(),
               province: shipping.province,
@@ -1172,13 +1201,22 @@
                   <button type="button" onClick={() => setQty((q) => Math.min(5, q + 1))} className="size-10 rounded-xl border border-brand-100 text-lg font-bold text-brand-dark transition hover:bg-brand-50" aria-label="Tambah">+</button>
                 </div>
               </div>
+              {donationEnabled && (
+                <DonationField label={event.donationLabel} amount={donation} setAmount={setDonation} />
+              )}
             </div>
-            {!free && (
+            {(!free || donationEnabled) && (
               <div className="mt-4 space-y-1.5 border-t border-brand-50 pt-4">
                 <div className="flex items-center justify-between text-sm text-ink/60">
                   <span>Tiket × {qty}</span>
-                  <span>{formatRupiah(event.price * qty)}</span>
+                  <span>{free ? "Gratis" : formatRupiah(event.price * qty)}</span>
                 </div>
+                {donation > 0 && (
+                  <div className="flex items-center justify-between text-sm text-ink/60">
+                    <span>Donasi{event.donationLabel ? " (" + event.donationLabel + ")" : ""}</span>
+                    <span>{formatRupiah(donation)}</span>
+                  </div>
+                )}
                 {shirtSurchargeTotal > 0 && (
                   <div className="flex items-center justify-between text-sm text-ink/60">
                     <span>Tambahan ukuran jersey</span>
@@ -1204,9 +1242,9 @@
             )}
             {error && <p className="mt-3 rounded-lg bg-orange/10 px-3 py-2 text-sm font-medium text-orange">{error}</p>}
             <button type="submit" disabled={submitting} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60">
-              <IconTicket className="size-5" />{submitting ? "Memproses…" : free ? "Daftar Sekarang" : "Pesan Tiket"}
+              <IconTicket className="size-5" />{submitting ? "Memproses…" : grandTotal > 0 ? "Pesan Tiket" : "Daftar Sekarang"}
             </button>
-            <p className="mt-3 text-center text-xs text-ink/45">{free ? "Pendaftaran gratis. Konfirmasi dikirim ke WhatsApp Anda." : "Setelah mendaftar, transfer sesuai instruksi. Admin mengonfirmasi secara manual."}</p>
+            <p className="mt-3 text-center text-xs text-ink/45">{grandTotal > 0 ? "Setelah mendaftar, transfer sesuai instruksi. Admin mengonfirmasi secara manual." : "Pendaftaran gratis. Konfirmasi dikirim ke WhatsApp Anda."}</p>
           </form>
         );
       }
