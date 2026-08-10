@@ -880,7 +880,7 @@
         return {
           address: "", provinceId: "", province: "", cityId: "", city: "",
           districtId: "", district: "", subdistrictId: "", subdistrict: "",
-          postalCode: "", shirtSize: "", courier: "",
+          postalCode: "", shirtSizes: [], courier: "",
         };
       }
 
@@ -985,12 +985,28 @@
                   placeholder="80111" className={selCls} />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Ukuran Jersey</label>
-                <select value={shipping.shirtSize}
-                  onChange={(e) => setShipping((s) => Object.assign({}, s, { shirtSize: e.target.value }))} className={selCls}>
-                  <option value="">Pilih ukuran</option>
-                  {SHIRT_SIZES.map((sz) => <option key={sz} value={sz}>{sz}</option>)}
-                </select>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">
+                  {shipping.shirtSizes.length > 1 ? "Ukuran Jersey per Peserta" : "Ukuran Jersey"}
+                </label>
+                <div className="space-y-2">
+                  {shipping.shirtSizes.map((size, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      {shipping.shirtSizes.length > 1 && (
+                        <span className="w-20 shrink-0 text-xs font-semibold text-ink/55">Peserta {i + 1}</span>
+                      )}
+                      <select value={size}
+                        onChange={(e) => {
+                          const next = shipping.shirtSizes.slice();
+                          next[i] = e.target.value;
+                          setShipping((s) => Object.assign({}, s, { shirtSizes: next }));
+                        }}
+                        className={selCls}>
+                        <option value="">Pilih ukuran</option>
+                        {SHIRT_SIZES.map((sz) => <option key={sz} value={sz}>{sz}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
               </div>
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kurir</label>
@@ -1035,6 +1051,17 @@
           });
         }, [event.slug]);
 
+        // Satu ukuran jersey per peserta — panjang shirtSizes ikut jumlah tiket,
+        // isi yang sudah dipilih dipertahankan saat jumlah berubah.
+        useEffect(() => {
+          if (!needsShipping) return;
+          setShipping((s) => {
+            const sizes = s.shirtSizes.slice(0, qty);
+            while (sizes.length < qty) sizes.push("");
+            return Object.assign({}, s, { shirtSizes: sizes });
+          });
+        }, [qty, needsShipping]);
+
         async function handleSubmit(e) {
           e.preventDefault();
           if (!name.trim() || !email.trim() || !phone.trim()) { setError("Mohon lengkapi nama, email, dan nomor WhatsApp."); return; }
@@ -1045,7 +1072,9 @@
               setError("Provinsi, kota, kecamatan, dan kelurahan wajib diisi."); return;
             }
             if (!/^\d{5}$/.test(shipping.postalCode)) { setError("Kode pos harus 5 digit angka."); return; }
-            if (!shipping.shirtSize) { setError("Pilih ukuran jersey."); return; }
+            if (shipping.shirtSizes.length !== qty || shipping.shirtSizes.some((sz) => !sz)) {
+              setError("Pilih ukuran jersey untuk setiap peserta."); return;
+            }
             if (!shipping.courier) { setError("Pilih kurir pengiriman."); return; }
           }
           setError("");
@@ -1068,7 +1097,7 @@
               district: shipping.district,
               subdistrict: shipping.subdistrict,
               postalCode: shipping.postalCode,
-              shirtSize: shipping.shirtSize,
+              shirtSizes: shipping.shirtSizes,
               courier: shipping.courier,
             } : undefined,
           });
