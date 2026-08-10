@@ -559,6 +559,59 @@
         }
       }
 
+      /* ============ AKUN PENGUNJUNG (daftar/masuk/keluar) ============ */
+      const ACCOUNT_TOKEN_KEY = "yakesma_account_token_v1";
+      function getAccountToken() { return localStorage.getItem(ACCOUNT_TOKEN_KEY); }
+      function setAccountToken(tok) { localStorage.setItem(ACCOUNT_TOKEN_KEY, tok); }
+      function clearAccountToken() { localStorage.removeItem(ACCOUNT_TOKEN_KEY); }
+
+      async function accountFetch(path, opts) {
+        const tok = getAccountToken();
+        const headers = Object.assign({}, (opts && opts.headers) || {}, tok ? { Authorization: "Bearer " + tok } : {});
+        const res = await fetch(API_BASE + path, Object.assign({}, opts, { headers }));
+        if (res.status === 401) clearAccountToken();
+        return res;
+      }
+
+      async function accountRegister(name, email, phone, password) {
+        try {
+          const res = await fetch(API_BASE + "/api/account/register", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, email, phone, password }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) return { ok: false, error: body.error || "Gagal mendaftar." };
+          return { ok: true, token: body.token, account: body.account };
+        } catch (e) {
+          return { ok: false, error: "Tidak bisa terhubung ke server." };
+        }
+      }
+
+      async function accountLogin(email, password) {
+        try {
+          const res = await fetch(API_BASE + "/api/account/login", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) return { ok: false, error: body.error || "Gagal masuk." };
+          return { ok: true, token: body.token, account: body.account };
+        } catch (e) {
+          return { ok: false, error: "Tidak bisa terhubung ke server." };
+        }
+      }
+
+      async function accountSession() {
+        try {
+          const res = await accountFetch("/api/account/session");
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok || !body.ok) return { ok: false };
+          return { ok: true, account: body.account };
+        } catch (e) {
+          return { ok: false };
+        }
+      }
+
       /* ============ WILAYAH INDONESIA (dropdown berjenjang) ============ */
       const WILAYAH_BASE = "https://www.emsifa.com/api-wilayah-indonesia/api";
       async function fetchWilayah(path) {
@@ -622,6 +675,7 @@
       const IconTrash = (p) => <SIcon {...p}><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" /></SIcon>;
       const IconShare = (p) => <SIcon {...p}><circle cx="6" cy="12" r="2.4" /><circle cx="18" cy="6" r="2.4" /><circle cx="18" cy="18" r="2.4" /><path d="M8.2 10.8 15.8 7.2M8.2 13.2 15.8 16.8" /></SIcon>;
       const IconCopy = (p) => <SIcon {...p}><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></SIcon>;
+      const IconLogOut = (p) => <SIcon {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></SIcon>;
       const IconInstagram = (p) => <SIcon {...p}><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><path d="M17.5 6.5h.01" /></SIcon>;
       const IconWhatsApp = ({ className }) => (
         <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" className={className} aria-hidden="true">
@@ -1405,37 +1459,142 @@
         );
       }
 
+      function AccountAuthPanel({ onLoggedIn }) {
+        const [mode, setMode] = useState("login"); // login | register
+        const [name, setName] = useState("");
+        const [email, setEmail] = useState("");
+        const [phone, setPhone] = useState("");
+        const [password, setPassword] = useState("");
+        const [error, setError] = useState("");
+        const [loading, setLoading] = useState(false);
+
+        async function submit(e) {
+          e.preventDefault();
+          setError(""); setLoading(true);
+          const res = mode === "login"
+            ? await accountLogin(email.trim(), password)
+            : await accountRegister(name.trim(), email.trim(), phone.trim(), password);
+          setLoading(false);
+          if (!res.ok) { setError(res.error); return; }
+          setAccountToken(res.token);
+          onLoggedIn(res.account);
+        }
+
+        function switchMode(next) { setMode(next); setError(""); setPassword(""); }
+
+        return (
+          <div>
+            <div className="mb-3 flex gap-1 rounded-xl bg-brand-50/60 p-1">
+              <button type="button" onClick={() => switchMode("login")}
+                className={"flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition " + (mode === "login" ? "bg-white text-brand-dark shadow-sm" : "text-ink/50")}>Masuk</button>
+              <button type="button" onClick={() => switchMode("register")}
+                className={"flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition " + (mode === "register" ? "bg-white text-brand-dark shadow-sm" : "text-ink/50")}>Daftar Akun</button>
+            </div>
+            <form onSubmit={submit} className="space-y-3">
+              {mode === "register" && <Field label="Nama Lengkap" value={name} onChange={setName} placeholder="Nama Anda" />}
+              <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="nama@email.com" />
+              {mode === "register" && <Field label="Nomor WhatsApp (opsional)" type="tel" value={phone} onChange={setPhone} placeholder="08xxxxxxxxxx" />}
+              <Field label="Password" type="password" value={password} onChange={setPassword} placeholder={mode === "register" ? "Minimal 8 karakter" : "Password"} />
+              {error && <p className="text-sm font-medium text-orange">{error}</p>}
+              <button type="submit" disabled={loading} className="flex w-full items-center justify-center rounded-xl bg-brand-dark px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-900 disabled:cursor-not-allowed disabled:opacity-60">
+                {loading ? "Memproses…" : mode === "login" ? "Masuk" : "Daftar"}
+              </button>
+            </form>
+            <p className="mt-3 text-center text-xs text-ink/50">
+              {mode === "login" ? "Belum punya akun? " : "Sudah punya akun? "}
+              <button type="button" onClick={() => switchMode(mode === "login" ? "register" : "login")} className="font-semibold text-brand hover:underline">
+                {mode === "login" ? "Daftar sekarang" : "Masuk di sini"}
+              </button>
+            </p>
+          </div>
+        );
+      }
+
       function Akun() {
+        const [session, setSession] = useState("checking"); // checking | out | in
+        const [account, setAccount] = useState(null);
         const [name, setName] = useState("");
         const [email, setEmail] = useState("");
         const [phone, setPhone] = useState("");
         const [count, setCount] = useState(0);
         const [saved, setSaved] = useState(false);
+
         useEffect(() => {
           const acc = getAccount();
           if (acc) { setName(acc.name); setEmail(acc.email); setPhone(acc.phone); }
           setCount(getRegistrations().length);
+
+          if (!getAccountToken()) { setSession("out"); return; }
+          accountSession().then((res) => {
+            if (!res.ok) { setSession("out"); return; }
+            setSession("in");
+            setAccount(res.account);
+            setName(res.account.name); setEmail(res.account.email); setPhone(res.account.phone || "");
+          });
         }, []);
+
         function handleSave(e) {
           e.preventDefault();
           saveAccount({ name: name.trim(), email: email.trim(), phone: phone.trim() });
           setSaved(true); setTimeout(() => setSaved(false), 2200);
         }
+
+        function handleLoggedIn(acc) {
+          setSession("in");
+          setAccount(acc);
+          setName(acc.name); setEmail(acc.email); setPhone(acc.phone || "");
+          saveAccount({ name: acc.name, email: acc.email, phone: acc.phone || "" });
+        }
+
+        function handleLogout() {
+          clearAccountToken();
+          setSession("out");
+          setAccount(null);
+        }
+
         return (
           <Container className="space-y-6">
             <h1 className="text-2xl font-extrabold text-brand-dark sm:text-3xl">Akun</h1>
             <section className="overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm">
               <div className="flex items-center gap-4 p-5 text-white" style={{ backgroundImage: `linear-gradient(135deg,${SITE.colors.green},${SITE.colors.dark})` }}>
                 <span className="grid size-14 shrink-0 place-items-center rounded-full bg-white/20 backdrop-blur"><IconUser className="size-7" /></span>
-                <div className="min-w-0"><p className="truncate text-lg font-extrabold">{name || "Tamu"}</p><p className="text-sm text-white/80">{count} event terdaftar</p></div>
+                <div className="min-w-0">
+                  <p className="truncate text-lg font-extrabold">{name || "Tamu"}</p>
+                  <p className="truncate text-sm text-white/80">{session === "in" ? "Masuk sebagai " + account.email : count + " event terdaftar"}</p>
+                </div>
               </div>
-              <form onSubmit={handleSave} className="space-y-3 p-5">
-                <Field label="Nama Lengkap" value={name} onChange={setName} placeholder="Nama Anda" />
-                <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="nama@email.com" />
-                <Field label="Nomor WhatsApp" type="tel" value={phone} onChange={setPhone} placeholder="08xxxxxxxxxx" />
-                <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">{saved ? <React.Fragment><IconCheckCircle className="size-5" /> Tersimpan</React.Fragment> : "Simpan Profil"}</button>
-                <p className="text-center text-xs text-ink/45">Data disimpan di perangkat Anda dan dipakai untuk mengisi form pendaftaran otomatis.</p>
-              </form>
+
+              {session === "checking" ? (
+                <p className="p-5 text-center text-sm text-ink/40">Memuat…</p>
+              ) : session === "in" ? (
+                <div className="space-y-3 p-5">
+                  <Field label="Nama Lengkap" value={name} onChange={setName} placeholder="Nama Anda" />
+                  <Field label="Nomor WhatsApp" type="tel" value={phone} onChange={setPhone} placeholder="08xxxxxxxxxx" />
+                  <p className="text-xs text-ink/45">Email: {account.email} (tidak bisa diubah)</p>
+                  <button type="button" onClick={handleSave} className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">
+                    {saved ? <React.Fragment><IconCheckCircle className="size-5" /> Tersimpan</React.Fragment> : "Simpan Profil"}
+                  </button>
+                  <button type="button" onClick={handleLogout} className="flex w-full items-center justify-center gap-2 rounded-xl border border-orange/40 px-4 py-3 text-sm font-semibold text-orange transition hover:bg-orange/10">
+                    <IconLogOut className="size-4" />Keluar
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-4 p-5">
+                  <form onSubmit={handleSave} className="space-y-3">
+                    <Field label="Nama Lengkap" value={name} onChange={setName} placeholder="Nama Anda" />
+                    <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="nama@email.com" />
+                    <Field label="Nomor WhatsApp" type="tel" value={phone} onChange={setPhone} placeholder="08xxxxxxxxxx" />
+                    <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">
+                      {saved ? <React.Fragment><IconCheckCircle className="size-5" /> Tersimpan</React.Fragment> : "Simpan Profil"}
+                    </button>
+                    <p className="text-center text-xs text-ink/45">Data disimpan di perangkat Anda dan dipakai untuk mengisi form pendaftaran otomatis.</p>
+                  </form>
+
+                  <div className="border-t border-brand-50 pt-4">
+                    <AccountAuthPanel onLoggedIn={handleLoggedIn} />
+                  </div>
+                </div>
+              )}
             </section>
 
             <Link to="/event-saya" className="flex items-center gap-3 rounded-2xl border border-brand-100 bg-white p-4 shadow-sm transition hover:border-brand">
