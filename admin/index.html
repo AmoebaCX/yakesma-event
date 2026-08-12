@@ -734,7 +734,12 @@
                             <td className="px-3 py-2">{r.quantity}</td>
                             <td className="px-3 py-2 font-semibold">{formatRupiah(r.total_amount)}</td>
                             <td className="px-3 py-2 font-mono text-xs">{r.ticket_code}</td>
-                            <td className="px-3 py-2"><RegStatusBadge status={r.payment_status} /></td>
+                            <td className="px-3 py-2">
+                              <RegStatusBadge status={r.payment_status} />
+                              {r.payment_status === "paid" && r.confirmed_by && (
+                                <p className="mt-1 text-[10px] text-ink/40">via {r.confirmed_by}</p>
+                              )}
+                            </td>
                             <td className="px-3 py-2">
                               {hasDetail ? (
                                 <button onClick={() => setExpandedId(expanded ? null : r.id)}

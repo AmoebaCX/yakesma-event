@@ -811,6 +811,15 @@
         return <span className={"shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold " + s.cls}>{s.text}</span>;
       }
 
+      function PayButton({ url }) {
+        return (
+          <a href={url} target="_blank" rel="noopener noreferrer"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition hover:bg-brand-600">
+            <IconTicket className="size-5" />Bayar Sekarang
+          </a>
+        );
+      }
+
       function BankInfo({ code, total }) {
         return (
           <div className="rounded-xl border border-dashed border-orange/40 bg-orange/5 p-4 text-sm">
@@ -870,7 +879,7 @@
                 <Barcode seed={reg.code} />
               </div>
 
-              {pending && <BankInfo code={reg.code} total={reg.total} />}
+              {pending && (reg.paymentUrl ? <PayButton url={reg.paymentUrl} /> : <BankInfo code={reg.code} total={reg.total} />)}
 
               <dl className="space-y-2 text-sm">
                 <TicketRow label="Event" value={reg.title} />
@@ -1152,6 +1161,7 @@
             name: name.trim(), email: email.trim(), phone: phone.trim(),
             quantity: qty, unitPrice: event.price, total: result.data.totalAmount,
             code: result.data.ticketCode, paymentStatus: result.data.paymentStatus,
+            paymentUrl: result.data.paymentUrl || null,
             eventDate: event.date,
             location: event.online ? "Online" : event.location + ", " + event.city,
             createdAt: new Date().toISOString(),
@@ -1177,7 +1187,7 @@
                 Kode tiket Anda: <span className="font-mono font-bold text-brand-dark">{already.code}</span>
               </p>
               {already.paymentStatus === "pending_transfer" && (
-                <BankInfo code={already.code} total={already.total} />
+                already.paymentUrl ? <PayButton url={already.paymentUrl} /> : <BankInfo code={already.code} total={already.total} />
               )}
               <Link to="/event-saya" className="flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Lihat di Event Saya</Link>
             </div>
@@ -1536,7 +1546,11 @@
                             <p className="flex items-center gap-1.5"><IconCalendar className="size-4 text-brand" />{formatTanggal(r.eventDate)}</p>
                             <p className="flex items-center gap-1.5"><IconMapPin className="size-4 text-brand" /><span className="truncate">{r.location}</span></p>
                           </div>
-                          {pending && <div className="mt-3"><BankInfo code={r.code} total={r.total} /></div>}
+                          {pending && (
+                            <div className="mt-3">
+                              {r.paymentUrl ? <PayButton url={r.paymentUrl} /> : <BankInfo code={r.code} total={r.total} />}
+                            </div>
+                          )}
                           <div className="mt-3 flex items-center justify-between border-t border-brand-50 pt-3">
                             <span className="text-sm">
                               <span className="text-ink/55">{r.quantity} {free ? "peserta" : "tiket"}</span>
