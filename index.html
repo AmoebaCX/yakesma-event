@@ -559,6 +559,22 @@
         }
       }
 
+      /** Batalkan pesanan sendiri selama belum dibayar. */
+      async function apiCancelOrder(ticketCode, email) {
+        try {
+          const res = await fetch(API_BASE + "/api/registrations/cancel", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ticketCode, email }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) return { ok: false, error: body.error || "Gagal membatalkan pesanan." };
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, error: "Tidak bisa terhubung ke server. Periksa koneksi internet Anda." };
+        }
+      }
+
       /* ============ AKUN PENGUNJUNG (daftar/masuk/keluar) ============ */
       const ACCOUNT_TOKEN_KEY = "yakesma_account_token_v1";
       function getAccountToken() { return localStorage.getItem(ACCOUNT_TOKEN_KEY); }
@@ -820,6 +836,51 @@
         );
       }
 
+      function CancelOrderButton({ code, email, onCancelled }) {
+        const [confirming, setConfirming] = useState(false);
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState("");
+
+        async function confirmCancel() {
+          setLoading(true);
+          setError("");
+          const res = await apiCancelOrder(code, email);
+          setLoading(false);
+          if (!res.ok) { setError(res.error); return; }
+          setConfirming(false);
+          onCancelled();
+        }
+
+        if (!confirming) {
+          return (
+            <div>
+              <button type="button" onClick={() => setConfirming(true)}
+                className="text-sm font-semibold text-ink/40 hover:text-orange">
+                Batalkan Pesanan
+              </button>
+              {error && <p className="mt-1.5 text-xs font-medium text-orange">{error}</p>}
+            </div>
+          );
+        }
+        return (
+          <div className="rounded-xl border border-orange/30 bg-orange/5 p-3">
+            <p className="text-sm font-semibold text-brand-dark">Yakin batalkan pesanan ini?</p>
+            <p className="mt-0.5 text-xs text-ink/60">Tindakan ini tidak bisa dibatalkan. Anda bisa mendaftar ulang setelahnya.</p>
+            <div className="mt-2.5 flex gap-2">
+              <button type="button" disabled={loading} onClick={confirmCancel}
+                className="rounded-lg bg-orange px-3 py-1.5 text-xs font-bold text-white hover:bg-orange/90 disabled:opacity-50">
+                {loading ? "Membatalkan…" : "Ya, Batalkan"}
+              </button>
+              <button type="button" disabled={loading} onClick={() => { setConfirming(false); setError(""); }}
+                className="rounded-lg border border-brand-100 px-3 py-1.5 text-xs font-semibold text-brand-dark hover:bg-brand-50 disabled:opacity-50">
+                Tidak, Kembali
+              </button>
+            </div>
+            {error && <p className="mt-1.5 text-xs font-medium text-orange">{error}</p>}
+          </div>
+        );
+      }
+
       function BankInfo({ code, total }) {
         return (
           <div className="rounded-xl border border-dashed border-orange/40 bg-orange/5 p-4 text-sm">
@@ -861,16 +922,19 @@
         );
       }
 
-      function TicketCard({ reg, free }) {
+      function TicketCard({ reg, free, onCancelled }) {
         const pending = reg.paymentStatus === "pending_transfer";
+        const cancelled = reg.paymentStatus === "cancelled";
         return (
           <div className="animate-in overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm">
-            <div className={pending ? "bg-gold/10 px-5 py-5 text-center" : "bg-brand-50 px-5 py-5 text-center"}>
-              <IconCheckCircle className={pending ? "mx-auto size-12 text-orange" : "mx-auto size-12 text-brand"} />
+            <div className={(pending || cancelled) ? "bg-gold/10 px-5 py-5 text-center" : "bg-brand-50 px-5 py-5 text-center"}>
+              <IconCheckCircle className={(pending || cancelled) ? "mx-auto size-12 text-orange" : "mx-auto size-12 text-brand"} />
               <h3 className="mt-2 text-lg font-extrabold text-brand-dark">
-                {free ? "Pendaftaran Berhasil!" : pending ? "Menunggu Konfirmasi Pembayaran" : "Pesanan Diterima!"}
+                {cancelled ? "Pesanan Dibatalkan" : free ? "Pendaftaran Berhasil!" : pending ? "Menunggu Konfirmasi Pembayaran" : "Pesanan Diterima!"}
               </h3>
-              <p className="mt-1 text-sm text-ink/60">Tunjukkan kode ini saat registrasi ulang.</p>
+              <p className="mt-1 text-sm text-ink/60">
+                {cancelled ? "Anda bisa mendaftar ulang untuk event ini kapan saja." : "Tunjukkan kode ini saat registrasi ulang."}
+              </p>
             </div>
             <div className="space-y-4 px-5 py-5">
               <div className="rounded-xl border border-dashed border-brand-200 p-4 text-center">
@@ -880,6 +944,9 @@
               </div>
 
               {pending && (reg.paymentUrl ? <PayButton url={reg.paymentUrl} /> : <BankInfo code={reg.code} total={reg.total} />)}
+              {pending && onCancelled && (
+                <CancelOrderButton code={reg.code} email={reg.email} onCancelled={onCancelled} />
+              )}
 
               <dl className="space-y-2 text-sm">
                 <TicketRow label="Event" value={reg.title} />
@@ -1089,15 +1156,19 @@
         useEffect(() => {
           const acc = getAccount();
           if (acc) { setName(acc.name); setEmail(acc.email); setPhone(acc.phone); }
-          const existing = getRegistrations().find((r) => r.slug === event.slug);
+          // Pendaftaran yang sudah dibatalkan tidak menghalangi pendaftaran ulang —
+          // constraint unik di server juga hanya berlaku selama belum dibatalkan.
+          const existing = getRegistrations().find((r) => r.slug === event.slug && r.paymentStatus !== "cancelled");
           if (!existing) return;
           setAlready(existing);
-          // Segarkan status dari server (mis. admin sudah menandai lunas) — sebaik mungkin,
-          // gagal diam-diam jika offline, cache lama tetap dipakai.
+          // Segarkan status dari server (mis. admin sudah menandai lunas, atau
+          // dibatalkan dari perangkat/tab lain) — sebaik mungkin, gagal diam-diam
+          // jika offline, cache lama tetap dipakai.
           apiLookupStatus(existing.code, existing.email).then((res) => {
             if (res.ok && res.data.paymentStatus && res.data.paymentStatus !== existing.paymentStatus) {
               const patch = { paymentStatus: res.data.paymentStatus };
               updateRegistrationInCache(existing.id, patch);
+              if (res.data.paymentStatus === "cancelled") { setAlready(null); return; }
               setAlready((prev) => (prev ? Object.assign({}, prev, patch) : prev));
             }
           });
@@ -1172,7 +1243,14 @@
           window.scrollTo({ top: 0, behavior: "smooth" });
         }
 
-        if (done) return <TicketCard reg={done} free={free} />;
+        if (done) {
+          return (
+            <TicketCard reg={done} free={free} onCancelled={() => {
+              updateRegistrationInCache(done.id, { paymentStatus: "cancelled" });
+              setDone((d) => (d ? Object.assign({}, d, { paymentStatus: "cancelled" }) : d));
+            }} />
+          );
+        }
         if (already)
           return (
             <div className="space-y-3 rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
@@ -1187,7 +1265,13 @@
                 Kode tiket Anda: <span className="font-mono font-bold text-brand-dark">{already.code}</span>
               </p>
               {already.paymentStatus === "pending_transfer" && (
-                already.paymentUrl ? <PayButton url={already.paymentUrl} /> : <BankInfo code={already.code} total={already.total} />
+                <React.Fragment>
+                  {already.paymentUrl ? <PayButton url={already.paymentUrl} /> : <BankInfo code={already.code} total={already.total} />}
+                  <CancelOrderButton code={already.code} email={already.email} onCancelled={() => {
+                    updateRegistrationInCache(already.id, { paymentStatus: "cancelled" });
+                    setAlready(null);
+                  }} />
+                </React.Fragment>
               )}
               <Link to="/event-saya" className="flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Lihat di Event Saya</Link>
             </div>
@@ -1547,8 +1631,12 @@
                             <p className="flex items-center gap-1.5"><IconMapPin className="size-4 text-brand" /><span className="truncate">{r.location}</span></p>
                           </div>
                           {pending && (
-                            <div className="mt-3">
+                            <div className="mt-3 space-y-2">
                               {r.paymentUrl ? <PayButton url={r.paymentUrl} /> : <BankInfo code={r.code} total={r.total} />}
+                              <CancelOrderButton code={r.code} email={r.email} onCancelled={() => {
+                                updateRegistrationInCache(r.id, { paymentStatus: "cancelled" });
+                                setRegs(getRegistrations());
+                              }} />
                             </div>
                           )}
                           <div className="mt-3 flex items-center justify-between border-t border-brand-50 pt-3">
