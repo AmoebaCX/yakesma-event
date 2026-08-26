@@ -500,6 +500,24 @@
         const month = new Intl.DateTimeFormat("id-ID", { month: "short" }).format(d).toUpperCase().replace(".", "");
         return { day, month };
       }
+      function formatTanggalPendek(iso) {
+        const d = new Date(iso + "T00:00:00");
+        return new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "long", year: "numeric" }).format(d);
+      }
+      /** "24 Agustus – 1 November 2026" — bulan/tahun awal cuma ditulis kalau beda dari akhir. */
+      function formatTanggalRange(startIso, endIso) {
+        if (!endIso || endIso === startIso) return formatTanggal(startIso);
+        const start = new Date(startIso + "T00:00:00");
+        const end = new Date(endIso + "T00:00:00");
+        const sameYear = start.getFullYear() === end.getFullYear();
+        const sameMonth = sameYear && start.getMonth() === end.getMonth();
+        const startFmt = sameMonth
+          ? String(start.getDate())
+          : sameYear
+            ? new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "long" }).format(start)
+            : formatTanggalPendek(startIso);
+        return startFmt + " – " + formatTanggalPendek(endIso);
+      }
 
       /* ============================ STORAGE (localStorage) ============================ */
       const REG_KEY = "yakesma_registrations_v1";
@@ -806,15 +824,19 @@
         );
       }
 
-      function Field({ label, value, onChange, type = "text", placeholder }) {
+      function Field({ label, value, onChange, type = "text", placeholder, inputMode, maxLength }) {
         return (
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-brand-dark">{label}</label>
             <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+              inputMode={inputMode} maxLength={maxLength}
               className="w-full rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20" />
           </div>
         );
       }
+
+      /** Bersihkan input nomor WhatsApp: hanya angka, maks 13 digit. */
+      function cleanPhoneInput(v) { return v.replace(/\D/g, "").slice(0, 13); }
 
       const STATUS_LABEL = {
         free: { text: "Gratis", cls: "bg-brand-50 text-brand-700" },
@@ -1277,6 +1299,26 @@
             </div>
           );
 
+        const todayIso = new Date().toISOString().slice(0, 10);
+        if (event.registrationStart && todayIso < event.registrationStart) {
+          return (
+            <div className="space-y-2 rounded-2xl border border-brand-100 bg-white p-5 text-center shadow-sm">
+              <IconCalendar className="mx-auto size-8 text-ink/30" />
+              <p className="font-bold text-brand-dark">Pendaftaran Belum Dibuka</p>
+              <p className="text-sm text-ink/60">Pendaftaran dibuka mulai {formatTanggalPendek(event.registrationStart)}.</p>
+            </div>
+          );
+        }
+        if (event.registrationEnd && todayIso > event.registrationEnd) {
+          return (
+            <div className="space-y-2 rounded-2xl border border-brand-100 bg-white p-5 text-center shadow-sm">
+              <IconCalendar className="mx-auto size-8 text-ink/30" />
+              <p className="font-bold text-brand-dark">Pendaftaran Sudah Ditutup</p>
+              <p className="text-sm text-ink/60">Pendaftaran untuk event ini ditutup pada {formatTanggalPendek(event.registrationEnd)}.</p>
+            </div>
+          );
+        }
+
         return (
           <form onSubmit={handleSubmit} className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-baseline justify-between">
@@ -1286,7 +1328,7 @@
             <div className="space-y-3">
               <Field label="Nama Lengkap" value={name} onChange={setName} placeholder="Nama sesuai identitas" />
               <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="nama@email.com" />
-              <Field label="Nomor WhatsApp" type="tel" value={phone} onChange={setPhone} placeholder="08xxxxxxxxxx" />
+              <Field label="Nomor WhatsApp" type="tel" value={phone} onChange={(v) => setPhone(cleanPhoneInput(v))} placeholder="08xxxxxxxxxx" inputMode="numeric" maxLength={13} />
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Jumlah {free ? "Peserta" : "Tiket"}</label>
                 <div className="flex items-center gap-3">
@@ -1530,10 +1572,20 @@
                     <p className="mt-2 text-ink/70">{event.excerpt}</p>
                   </div>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <Fact icon={IconCalendar} label="Tanggal" value={formatTanggal(event.date)} />
+                    <Fact icon={IconCalendar} label={event.dateEnd ? "Pelaksanaan" : "Tanggal"} value={formatTanggalRange(event.date, event.dateEnd)} />
                     <Fact icon={IconClock} label="Waktu" value={formatWaktu(event.timeStart, event.timeEnd)} />
                     <Fact icon={IconMapPin} label="Lokasi" value={event.online ? event.location : event.location + ", " + event.city} />
                     <Fact icon={IconUsers} label="Kuota" value={event.registered + " dari " + event.quota + " terisi"} />
+                    {(event.registrationStart || event.registrationEnd) && (
+                      <Fact icon={IconCalendar} label="Pendaftaran"
+                        value={
+                          event.registrationStart && event.registrationEnd
+                            ? formatTanggalRange(event.registrationStart, event.registrationEnd)
+                            : event.registrationEnd
+                              ? "Sampai " + formatTanggalPendek(event.registrationEnd)
+                              : "Mulai " + formatTanggalPendek(event.registrationStart)
+                        } />
+                    )}
                   </div>
                 </div>
 
@@ -1694,7 +1746,7 @@
             <form onSubmit={submit} className="space-y-3">
               {mode === "register" && <Field label="Nama Lengkap" value={name} onChange={setName} placeholder="Nama Anda" />}
               <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="nama@email.com" />
-              {mode === "register" && <Field label="Nomor WhatsApp (opsional)" type="tel" value={phone} onChange={setPhone} placeholder="08xxxxxxxxxx" />}
+              {mode === "register" && <Field label="Nomor WhatsApp (opsional)" type="tel" value={phone} onChange={(v) => setPhone(cleanPhoneInput(v))} placeholder="08xxxxxxxxxx" inputMode="numeric" maxLength={13} />}
               <Field label="Password" type="password" value={password} onChange={setPassword} placeholder={mode === "register" ? "Minimal 8 karakter" : "Password"} />
               {error && <p className="text-sm font-medium text-orange">{error}</p>}
               <button type="submit" disabled={loading} className="flex w-full items-center justify-center rounded-xl bg-brand-dark px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-900 disabled:cursor-not-allowed disabled:opacity-60">
@@ -1770,7 +1822,7 @@
               ) : session === "in" ? (
                 <div className="space-y-3 p-5">
                   <Field label="Nama Lengkap" value={name} onChange={setName} placeholder="Nama Anda" />
-                  <Field label="Nomor WhatsApp" type="tel" value={phone} onChange={setPhone} placeholder="08xxxxxxxxxx" />
+                  <Field label="Nomor WhatsApp" type="tel" value={phone} onChange={(v) => setPhone(cleanPhoneInput(v))} placeholder="08xxxxxxxxxx" inputMode="numeric" maxLength={13} />
                   <p className="text-xs text-ink/45">Email: {account.email} (tidak bisa diubah)</p>
                   <button type="button" onClick={handleSave} className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">
                     {saved ? <React.Fragment><IconCheckCircle className="size-5" /> Tersimpan</React.Fragment> : "Simpan Profil"}
@@ -1784,7 +1836,7 @@
                   <form onSubmit={handleSave} className="space-y-3">
                     <Field label="Nama Lengkap" value={name} onChange={setName} placeholder="Nama Anda" />
                     <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="nama@email.com" />
-                    <Field label="Nomor WhatsApp" type="tel" value={phone} onChange={setPhone} placeholder="08xxxxxxxxxx" />
+                    <Field label="Nomor WhatsApp" type="tel" value={phone} onChange={(v) => setPhone(cleanPhoneInput(v))} placeholder="08xxxxxxxxxx" inputMode="numeric" maxLength={13} />
                     <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">
                       {saved ? <React.Fragment><IconCheckCircle className="size-5" /> Tersimpan</React.Fragment> : "Simpan Profil"}
                     </button>

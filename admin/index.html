@@ -86,7 +86,7 @@
         return {
           slug: "", title: "", category: "Kajian", speaker: "",
           location: "", city: "", online: false,
-          date: "", timeStart: "", timeEnd: "",
+          date: "", dateEnd: "", registrationStart: "", registrationEnd: "", timeStart: "", timeEnd: "",
           price: 0, quota: 100, registered: 0,
           gradient: ["#28a840", "#185838"], emoji: "🕌", imageSquare: "", imageWide: "", gallery: [],
           excerpt: "", about: [""], benefits: [""], featured: false,
@@ -131,8 +131,14 @@
       function Label({ children }) { return <label className="mb-1 block text-sm font-semibold text-ink/80">{children}</label>; }
       const inputCls = "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20";
 
-      function Text({ label, value, onChange, placeholder, type }) {
-        return <div><Label>{label}</Label><input type={type || "text"} className={inputCls} value={value == null ? "" : value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} /></div>;
+      function Text({ label, value, onChange, placeholder, type, hint }) {
+        return (
+          <div>
+            <Label>{label}</Label>
+            <input type={type || "text"} className={inputCls} value={value == null ? "" : value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+            {hint && <p className="mt-1 text-xs text-ink/45">{hint}</p>}
+          </div>
+        );
       }
       function Num({ label, value, onChange, min, hint }) {
         return <div><Label>{label}</Label><input type="number" min={min == null ? 0 : min} className={inputCls} value={value == null ? "" : value} onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))} />{hint && <p className="mt-1 text-xs text-ink/45">{hint}</p>}</div>;
@@ -323,10 +329,19 @@
                   <Text label="Tujuan Donasi" value={ev.donationLabel} onChange={(v) => set("donationLabel", v)} placeholder="mis. Penanaman Pohon di Bali" />
                 </div>
               )}
-              <Text label="Tanggal" type="date" value={ev.date} onChange={(v) => set("date", v)} />
+              <div className="grid grid-cols-2 gap-3">
+                <Text label="Tanggal Mulai" type="date" value={ev.date} onChange={(v) => set("date", v)} />
+                <Text label="Tanggal Selesai (opsional)" type="date" value={ev.dateEnd} onChange={(v) => set("dateEnd", v)}
+                  hint="Isi kalau pelaksanaan berbentuk rentang, mis. lari virtual." />
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <Text label="Mulai" value={ev.timeStart} onChange={(v) => set("timeStart", v)} placeholder="08:00" />
                 <Text label="Selesai" value={ev.timeEnd} onChange={(v) => set("timeEnd", v)} placeholder="11:00" />
+              </div>
+              <div className="sm:col-span-2 grid grid-cols-2 gap-3">
+                <Text label="Pendaftaran Dibuka (opsional)" type="date" value={ev.registrationStart} onChange={(v) => set("registrationStart", v)}
+                  hint="Kosongkan jika pendaftaran boleh kapan saja." />
+                <Text label="Pendaftaran Ditutup (opsional)" type="date" value={ev.registrationEnd} onChange={(v) => set("registrationEnd", v)} />
               </div>
               <Num label="Harga (Rp)" value={ev.price} onChange={(v) => set("price", v)} hint="0 = Gratis" />
               <div className="grid grid-cols-2 gap-3">
