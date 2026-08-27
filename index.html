@@ -1523,7 +1523,12 @@
        * sesuai event, lalu otomatis mengalihkan manusia ke halaman aslinya.
        */
       function eventShareUrl(event) {
-        return API_BASE + "/share/" + event.slug;
+        // Penanda tanggal (bukan angka acak) — link tetap stabil sepanjang hari yang
+        // sama (aman dipakai berulang di Meta Ads), tapi otomatis "kedaluwarsa" tiap
+        // hari supaya proxy cache basi di jaringan operator seluler tertentu tidak
+        // terus-menerus menyimpan versi lama (pernah terjadi: 404 di HP, normal di PC).
+        const v = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+        return API_BASE + "/share/" + event.slug + "?v=" + v;
       }
 
       function ShareButton({ event }) {
