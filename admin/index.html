@@ -88,7 +88,7 @@
           location: "", city: "", online: false,
           date: "", dateEnd: "", registrationStart: "", registrationEnd: "", timeStart: "", timeEnd: "",
           price: 0, quota: 100, registered: 0,
-          gradient: ["#28a840", "#185838"], emoji: "🕌", imageSquare: "", imageWide: "", gallery: [],
+          gradient: ["#28a840", "#185838"], emoji: "🕌", imageSquare: "", imageWide: "", sizeChartImage: "", gallery: [],
           excerpt: "", about: [""], benefits: [""], featured: false,
           requiresShipping: false,
           donationEnabled: false, donationLabel: "",
@@ -320,6 +320,16 @@
                 <Toggle label="Butuh info pengiriman (alamat, ukuran kaos, kurir) — mis. lari virtual"
                   checked={!!ev.requiresShipping} onChange={(v) => set("requiresShipping", v)} />
               </div>
+              {ev.requiresShipping && (
+                <div className="sm:col-span-2">
+                  <ImageUploadField
+                    label="Panduan Ukuran Jersey (opsional)"
+                    hint="Ditampilkan sebagai tautan 'Lihat Panduan Ukuran' di dekat pilihan ukuran jersey saat pendaftaran."
+                    value={ev.sizeChartImage}
+                    onChange={(v) => set("sizeChartImage", v)}
+                  />
+                </div>
+              )}
               <div className="sm:col-span-2 flex items-end pb-1">
                 <Toggle label="Aktifkan donasi tambahan (opsional saat pendaftaran)"
                   checked={!!ev.donationEnabled} onChange={(v) => set("donationEnabled", v)} />
