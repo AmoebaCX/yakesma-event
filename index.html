@@ -76,14 +76,14 @@
     <div id="root"></div>
 
     <script type="text/babel" data-presets="react-classic">
-      const { useState, useEffect, useMemo } = React;
+      const { useState, useEffect, useMemo, useRef } = React;
 
       /* ====== KONFIGURASI BRAND (fallback offline — disalin dari konten nyata terakhir) ====== */
       const _DEFAULT_SITE = {
         name: "YAKESMA",
         tagline: "Lembaga Amil Zakat Nasional",
         intro: "Ikuti kajian, kelas, webinar, dan program kebaikan YAKESMA. Perluas ilmu, perbanyak amal, raih keberkahan.",
-        whatsapp: "6282273333477",
+        whatsapp: "6281385717968",
         email: "welcome@yakesma.org",
         instagram: "yakesma",
         website: "yakesma.org",
@@ -93,6 +93,7 @@
         accountHolder: "Yayasan YAKESMA",
         logo: "yakesma-logo.png",
         mark: "yakesma-mark.png",
+        pixelId: "",
         colors: { green: "#28a840", dark: "#185838", gold: "#f6b700", orange: "#f58634" },
       };
 
@@ -109,7 +110,7 @@
       const _DEFAULT_EVENTS = [
         {
           "slug": "bali-international-virtual-run",
-          "title": "Bali International Virtual Run",
+          "title": "Bali Run for Charity",
           "category": "Lari Virtual",
           "location": "Virtual (Lari di Mana Saja)",
           "city": "Online",
@@ -128,11 +129,11 @@
           "emoji": "🏃",
           "excerpt": "Lari di mana saja, kapan saja, sepanjang 17 Agustus 2026 — rayakan kemerdekaan sambil berbagi kebaikan.",
           "about": [
-            "Bali International Virtual Run mengajak Anda berlari 5K, 10K, atau jarak pilihan Anda sendiri — di kota mana pun Anda berada — dalam rangka memperingati Hari Kemerdekaan RI sekaligus mendukung program kebaikan YAKESMA.",
+            "Bali Run for Charity mengajak Anda berlari 5K, 10K, atau jarak pilihan Anda sendiri — di kota mana pun Anda berada — dalam rangka memperingati Hari Kemerdekaan RI sekaligus mendukung program kebaikan YAKESMA.",
             "Cukup daftar, lari kapan saja sepanjang 17 Agustus 2026, lalu dokumentasikan aktivitas Anda. Jersey eksklusif dan medali finisher akan dikirim langsung ke alamat Anda setelah event berakhir."
           ],
           "benefits": [
-            "Jersey eksklusif Bali International Virtual Run",
+            "Jersey eksklusif Bali Run for Charity",
             "Medali finisher",
             "E-sertifikat resmi",
             "Sebagian biaya pendaftaran disalurkan untuk program sosial YAKESMA"
@@ -479,6 +480,8 @@
       applyContent(readCachedContent());
 
       const getEvent = (slug) => EVENTS.find((e) => e.slug === slug);
+      /** "Terisi" = peserta terkonfirmasi otomatis (Lunas + Gratis, dari API) + angka manual dari admin. */
+      const registeredCount = (e) => (Number(e.registered) || 0) + (Number(e.confirmedCount) || 0);
 
       /* ============================ HELPERS ============================ */
       function formatRupiah(n) {
@@ -519,6 +522,23 @@
         return startFmt + " – " + formatTanggalPendek(endIso);
       }
 
+      /** Event dianggap sudah selesai kalau tanggal pelaksanaannya (dateEnd
+       * kalau berbentuk rentang, atau date) sudah lewat hari ini. Dipakai
+       * untuk mengganti form pendaftaran dengan info "sudah selesai" di
+       * halaman detail — event lama tetap tampil di daftar/beranda yang sama
+       * dengan event aktif, cuma form-nya yang berbeda. */
+      function isEventFinished(event) {
+        return (event.dateEnd || event.date) < todayIsoWIB();
+      }
+      /** Urutkan: event aktif dulu (tanggal terdekat duluan), baru event yang
+       * sudah selesai (yang paling baru selesai duluan) — supaya event lama
+       * tidak "mengubur" event yang akan datang di paling atas daftar. */
+      function compareEventsForList(a, b) {
+        const fa = isEventFinished(a), fb = isEventFinished(b);
+        if (fa !== fb) return fa ? 1 : -1;
+        return fa ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date);
+      }
+
       /* ============================ STORAGE (localStorage) ============================ */
       const REG_KEY = "yakesma_registrations_v1";
       const ACC_KEY = "yakesma_account_v1";
@@ -538,6 +558,17 @@
       }
       function getAccount() { return safeParse(localStorage.getItem(ACC_KEY), null); }
       function saveAccount(acc) { localStorage.setItem(ACC_KEY, JSON.stringify(acc)); }
+      /** Bagian data server yang berbeda dari cache lokal (status, klaim bayar, kode unik, total) — null kalau sama. */
+      function serverPatch(local, d) {
+        const patch = {};
+        if (d.paymentStatus !== local.paymentStatus) patch.paymentStatus = d.paymentStatus;
+        if ((d.cancelReason || null) !== (local.cancelReason || null)) patch.cancelReason = d.cancelReason || null;
+        if ((d.paymentClaimedAt || null) !== (local.paymentClaimedAt || null)) patch.paymentClaimedAt = d.paymentClaimedAt || null;
+        if ((d.uniqueCode || null) !== (local.uniqueCode || null)) patch.uniqueCode = d.uniqueCode || null;
+        if (d.totalAmount && d.totalAmount !== local.total) patch.total = d.totalAmount;
+        if (d.createdAt && d.createdAt !== local.createdAt) patch.createdAt = d.createdAt;
+        return Object.keys(patch).length ? patch : null;
+      }
       function updateRegistrationInCache(id, patch) {
         const list = safeParse(localStorage.getItem(REG_KEY), []);
         const next = list.map((r) => (r.id === id ? Object.assign({}, r, patch) : r));
@@ -588,6 +619,36 @@
           const body = await res.json().catch(() => ({}));
           if (!res.ok) return { ok: false, error: body.error || "Gagal membatalkan pesanan." };
           return { ok: true };
+        } catch (e) {
+          return { ok: false, error: "Tidak bisa terhubung ke server. Periksa koneksi internet Anda." };
+        }
+      }
+
+      /** Cek status lewat token tautan bayar (dari email/WA) — tanpa perlu email peserta. */
+      async function apiLookupByToken(ticketCode, token) {
+        try {
+          const url = API_BASE + "/api/registrations/lookup?ticketCode=" +
+            encodeURIComponent(ticketCode) + "&t=" + encodeURIComponent(token);
+          const res = await fetch(url);
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) return { ok: false, error: body.error || "Pendaftaran tidak ditemukan." };
+          return { ok: true, data: body };
+        } catch (e) {
+          return { ok: false, error: "Tidak bisa terhubung ke server. Periksa koneksi internet Anda." };
+        }
+      }
+
+      /** "Saya sudah bayar" — proof: { email } atau { token }. */
+      async function apiClaimPayment(ticketCode, proof) {
+        try {
+          const res = await fetch(API_BASE + "/api/registrations/claim", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(Object.assign({ ticketCode }, proof)),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) return { ok: false, error: body.error || "Gagal menyimpan. Coba lagi." };
+          return { ok: true, data: body };
         } catch (e) {
           return { ok: false, error: "Tidak bisa terhubung ke server. Periksa koneksi internet Anda." };
         }
@@ -662,18 +723,70 @@
       const fetchDistricts = (regencyId) => fetchWilayah("/districts/" + regencyId + ".json");
       const fetchVillages = (districtId) => fetchWilayah("/villages/" + districtId + ".json");
 
+      /* ============ KODE POS (dicocokkan dengan kelurahan terpilih) ============
+         Sumber: kodepos.vercel.app (data komunitas, CORS terbuka). Nama wilayahnya
+         ditulis berbeda dari api-wilayah-indonesia ("NUSAPENIDA" vs "Nusa Penida",
+         "KOTA JAKARTA SELATAN" vs "Administrasi Jakarta Selatan"), jadi dicocokkan
+         setelah huruf kecil + tanpa spasi/tanda baca, dengan beberapa variasi query. */
+      const KODEPOS_BASE = "https://kodepos.vercel.app/search/?q=";
+      const _postalCache = {};
+      function normWilayah(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+      function regencyCore(s) {
+        return String(s || "").toLowerCase().replace(/\b(kabupaten|kota administrasi|administrasi|kota)\b|adm\./g, " ").replace(/\s+/g, " ").trim();
+      }
+      async function searchKodepos(q) {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 8000);
+        try {
+          const res = await fetch(KODEPOS_BASE + encodeURIComponent(q.toLowerCase()), { signal: ctrl.signal });
+          if (!res.ok) throw new Error("kodepos " + res.status);
+          const body = await res.json();
+          return Array.isArray(body.data) ? body.data : [];
+        } finally {
+          clearTimeout(t);
+        }
+      }
+      /** {level:"desa"|"kecamatan", codes:["12520"]} · null kalau tidak ditemukan · melempar error kalau layanan tidak bisa dihubungi. */
+      async function lookupPostalCodes(village, district, regency) {
+        const key = [village, district, regency].join("|");
+        if (_postalCache[key] !== undefined) return _postalCache[key];
+        const V = normWilayah(village), D = normWilayah(district), R = normWilayah(regencyCore(regency));
+        const uniq = (rows) => Array.from(new Set(rows.map((x) => String(x.code)))).sort();
+        let result = null;
+        // Tiga variasi dijalankan bersamaan (layanan kadang lambat); urutan prioritas tetap dijaga.
+        const settled = await Promise.allSettled(
+          [village + " " + district, village + " " + regencyCore(regency), village].map(searchKodepos));
+        if (settled.every((s) => s.status === "rejected")) throw new Error("layanan kode pos tidak bisa dihubungi");
+        for (const s of settled) {
+          if (s.status !== "fulfilled") continue;
+          const rows = s.value.filter((x) =>
+            normWilayah(x.village) === V && (normWilayah(x.district) === D || normWilayah(regencyCore(x.regency)) === R));
+          if (rows.length) { result = { level: "desa", codes: uniq(rows) }; break; }
+        }
+        if (!result) {
+          const rows = (await searchKodepos(district + " " + regencyCore(regency))).filter((x) =>
+            normWilayah(x.district) === D && normWilayah(regencyCore(x.regency)) === R);
+          if (rows.length) result = { level: "kecamatan", codes: uniq(rows) };
+        }
+        _postalCache[key] = result;
+        return result;
+      }
+
       const SHIRT_SIZES = ["S", "M", "L", "XL", "2XL", "3XL", "4XL"];
       const SHIRT_SIZE_SURCHARGE = { S: 0, M: 0, L: 0, XL: 0, "2XL": 25000, "3XL": 50000, "4XL": 75000 };
       const COURIER = "POS Indonesia";
-      // Tarif flat per zona POS Indonesia (Kilat Khusus, paket ringan <1kg) — sinkron
-      // dengan yakesma-api/src/lib/validate.ts dan admin/index.html.
-      function posShippingFee(province) {
-        const p = (province || "").toUpperCase();
-        if (p.includes("PAPUA") || p.includes("MALUKU")) return 50000;
-        if (p.includes("JAWA") || p.includes("JAKARTA") || p.includes("YOGYAKARTA") || p.includes("BANTEN") || p.includes("BALI")) {
-          return 20000;
+      /** Pratinjau ongkir POS Reguler dari tabel tarif di server. Total yang ditagih tetap dihitung server. */
+      async function apiShippingQuote(shipping) {
+        try {
+          const res = await fetch(API_BASE + "/api/shipping/quote", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ province: shipping.province, city: shipping.city, district: shipping.district, postalCode: shipping.postalCode }),
+          });
+          if (!res.ok) return null;
+          return await res.json();
+        } catch (e) {
+          return null;
         }
-        return 35000;
       }
 
       /* ============================ ROUTER (hash) ============================ */
@@ -765,8 +878,49 @@
         );
       }
 
+      /** Harga yang ditampilkan publik: harga event, atau "mulai dari" paket publik termurah. */
+      function eventPriceInfo(e) {
+        const pk = (e.packages || []).filter((p) => p.active && !p.internal);
+        if (!pk.length) return { price: e.price, from: false };
+        return { price: Math.min.apply(null, pk.map((p) => p.price)), from: pk.length > 1 };
+      }
+
+      function PackagePicker({ packages, value, onChange }) {
+        return (
+          <div className="mb-4">
+            <p className="mb-2 text-sm font-semibold text-brand-dark">Pilih Paket</p>
+            <div className="space-y-2" role="radiogroup">
+              {packages.map((p) => {
+                const on = p.id === value;
+                const chips = [p.medal && "🏅 Medali", p.jersey && "👕 Jersey", !p.medal && !p.jersey && "🌳 Donasi Pohon Saja"].filter(Boolean);
+                return (
+                  <button key={p.id} type="button" role="radio" aria-checked={on} onClick={() => onChange(p.id)}
+                    className={"flex w-full items-start gap-3 rounded-xl border px-3.5 py-3 text-left transition " + (on ? "border-brand bg-brand-50 ring-2 ring-brand/20" : "border-brand-100 bg-white hover:border-brand")}>
+                    <span className={"mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border-2 " + (on ? "border-brand" : "border-ink/25")}>
+                      {on && <span className="size-2.5 rounded-full bg-brand" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-1.5 font-bold text-brand-dark">
+                        {p.name}
+                        {p.internal && <span className="rounded-full bg-gold/25 px-2 py-0.5 text-[10px] font-bold text-orange">Khusus internal</span>}
+                      </span>
+                      {p.description && <span className="mt-0.5 block text-xs text-ink/65">{p.description}</span>}
+                      <span className="mt-1 flex flex-wrap gap-1">
+                        {chips.map((c) => <span key={c} className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-ink/60 ring-1 ring-brand-100">{c}</span>)}
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-extrabold text-brand-dark">{formatRupiah(p.price)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
+
       function EventCard({ event }) {
-        const free = event.price <= 0;
+        const priceInfo = eventPriceInfo(event);
+        const free = priceInfo.price <= 0;
         return (
           <Link to={"/event/" + event.slug} className="group block">
             <EventPoster event={event} compact className="aspect-square transition-transform duration-300 group-hover:-translate-y-1 group-hover:shadow-xl group-hover:shadow-brand/10" />
@@ -777,8 +931,8 @@
                 <span className="truncate">{event.online ? "Online" : event.location + ", " + event.city}</span>
               </p>
               <div className="mt-2 flex items-center justify-between">
-                <span className={free ? "rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-bold text-brand-700" : "text-sm font-extrabold text-brand-dark"}>{formatRupiah(event.price)}</span>
-                <span className="text-xs text-ink/45">{event.registered}/{event.quota} peserta</span>
+                <span className={free ? "rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-bold text-brand-700" : "text-sm font-extrabold text-brand-dark"}>{(priceInfo.from && !free ? "Mulai " : "") + formatRupiah(priceInfo.price)}</span>
+                <span className="text-xs text-ink/45">{registeredCount(event)}/{event.quota} peserta</span>
               </div>
             </div>
           </Link>
@@ -793,7 +947,7 @@
           return events
             .filter((e) => cat === "Semua" || e.category === cat)
             .filter((e) => !query || e.title.toLowerCase().includes(query) || e.location.toLowerCase().includes(query) || e.city.toLowerCase().includes(query) || e.category.toLowerCase().includes(query))
-            .sort((a, b) => a.date.localeCompare(b.date));
+            .sort(compareEventsForList);
         }, [events, cat, q]);
         const chips = ["Semua", ...CATEGORIES];
         return (
@@ -844,18 +998,11 @@
         paid: { text: "Lunas", cls: "bg-brand text-white" },
         cancelled: { text: "Dibatalkan", cls: "bg-ink/10 text-ink/50" },
       };
-      function StatusBadge({ status }) {
-        const s = STATUS_LABEL[status] || STATUS_LABEL.free;
+      function StatusBadge({ status, claimed }) {
+        const s = status === "pending_transfer" && claimed
+          ? { text: "Menunggu Verifikasi", cls: "bg-brand-50 text-brand-700" }
+          : STATUS_LABEL[status] || STATUS_LABEL.free;
         return <span className={"shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold " + s.cls}>{s.text}</span>;
-      }
-
-      function PayButton({ url }) {
-        return (
-          <a href={url} target="_blank" rel="noopener noreferrer"
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition hover:bg-brand-600">
-            <IconTicket className="size-5" />Bayar Sekarang
-          </a>
-        );
       }
 
       function CancelOrderButton({ code, email, onCancelled }) {
@@ -903,22 +1050,217 @@
         );
       }
 
-      function BankInfo({ code, total }) {
+      // Frasa "saya mau bayar pendaftaran" adalah trigger BalesOtomatis untuk instruksi pembayaran — jangan diubah tanpa menyesuaikan trigger-nya.
+      function payWhatsAppUrl(code, total) {
+        const text = "Halo YAKESMA, saya mau bayar pendaftaran.\nKode tiket: " + code + "\nTotal: " + formatRupiah(total);
+        return "https://wa.me/" + SITE.whatsapp + "?text=" + encodeURIComponent(text);
+      }
+
+      /* ---------- QRIS lembaga: QRIS statis → QRIS bernominal ---------- */
+      // Standar QRIS (EMVCo): ubah tag 01 "11" (statis) → "12" (dinamis), sisipkan tag 54
+      // (nominal) sesuai urutan tag, lalu hitung ulang CRC16-CCITT di tag 63. Dana tetap
+      // masuk ke merchant QRIS yang sama — hanya nominalnya yang terisi otomatis di aplikasi.
+      function qrisCrc16(str) {
+        let crc = 0xffff;
+        for (let i = 0; i < str.length; i++) {
+          crc ^= str.charCodeAt(i) << 8;
+          for (let j = 0; j < 8; j++) crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+        }
+        return crc.toString(16).toUpperCase().padStart(4, "0");
+      }
+      function qrisTlv(str) {
+        const out = [];
+        for (let i = 0; i + 4 <= str.length; ) {
+          const len = parseInt(str.slice(i + 2, i + 4), 10);
+          if (isNaN(len)) return null;
+          out.push([str.slice(i, i + 2), str.slice(i + 4, i + 4 + len)]);
+          i += 4 + len;
+        }
+        return out;
+      }
+      function qrisValid(payload) {
+        return typeof payload === "string" && /^000201/.test(payload) && payload.length > 12 &&
+          payload.slice(-8, -4) === "6304" && qrisCrc16(payload.slice(0, -4)) === payload.slice(-4).toUpperCase();
+      }
+      function qrisInfo(payload) {
+        const top = qrisTlv(payload) || [];
+        const get = (t) => (top.find((x) => x[0] === t) || [])[1] || "";
+        const sub = qrisTlv(get("51")) || [];
+        return { merchant: get("59"), city: get("60"), nmid: (sub.find((x) => x[0] === "02") || [])[1] || "" };
+      }
+      function qrisWithAmount(payload, amount) {
+        const fields = (qrisTlv(payload.slice(0, -8)) || []).filter((f) => f[0] !== "54" && f[0] !== "63");
+        const amt = String(Math.round(amount));
+        const out = fields.map((f) => (f[0] === "01" ? ["01", "12"] : f));
+        const at = out.findIndex((f) => f[0] > "54");
+        out.splice(at === -1 ? out.length : at, 0, ["54", amt]);
+        const body = out.map((f) => f[0] + String(f[1].length).padStart(2, "0") + f[1]).join("") + "6304";
+        return body + qrisCrc16(body);
+      }
+      const hasQris = () => qrisValid(SITE.qris);
+
+      const QR_SRC = "https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js";
+      function loadQrLib() {
+        if (window.qrcode) return Promise.resolve(window.qrcode);
+        return new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = QR_SRC; s.async = true;
+          s.onload = () => (window.qrcode ? resolve(window.qrcode) : reject(new Error("QR tidak termuat")));
+          s.onerror = () => reject(new Error("QR gagal dimuat"));
+          document.head.appendChild(s);
+        });
+      }
+      /** Gambar QR + nominal + nama merchant ke canvas (juga dipakai untuk "Simpan Gambar"). */
+      function drawQrisCanvas(canvas, qr, opts) {
+        const n = qr.getModuleCount(), cell = Math.max(4, Math.floor(520 / (n + 8)));
+        const qrSize = (n + 8) * cell, W = qrSize + 40, H = qrSize + 150;
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = "#000000";
+        for (let r = 0; r < n; r++) for (let c = 0; c < n; c++)
+          if (qr.isDark(r, c)) ctx.fillRect(20 + (c + 4) * cell, 20 + (r + 4) * cell, cell, cell);
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#185838"; ctx.font = "bold 40px 'Plus Jakarta Sans', Arial, sans-serif";
+        ctx.fillText(formatRupiah(opts.amount), W / 2, qrSize + 70);
+        ctx.fillStyle = "#4b5563"; ctx.font = "22px 'Plus Jakarta Sans', Arial, sans-serif";
+        ctx.fillText(opts.merchant + " · " + opts.code, W / 2, qrSize + 108);
+        if (opts.nmid) ctx.fillText("NMID " + opts.nmid, W / 2, qrSize + 138);
+      }
+
+      function QrisPayment({ reg, proof, onClaimed }) {
+        const canvasRef = useRef(null);
+        const [qrError, setQrError] = useState("");
+        const [claiming, setClaiming] = useState(false);
+        const [claimError, setClaimError] = useState("");
+        const claimed = Boolean(reg.paymentClaimedAt);
+        const info = qrisInfo(SITE.qris);
+        const payload = qrisWithAmount(SITE.qris, reg.total);
+        const deadline = reg.createdAt ? new Date(new Date(reg.createdAt).getTime() + 24 * 3600 * 1000) : null;
+        const deadlineText = deadline ? new Intl.DateTimeFormat("id-ID", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" }).format(deadline).replace("Minggu", "Ahad") + " WIB" : "";
+
+        useEffect(() => {
+          let alive = true;
+          loadQrLib().then((qrcode) => {
+            if (!alive || !canvasRef.current) return;
+            const qr = qrcode(0, "M"); qr.addData(payload); qr.make();
+            drawQrisCanvas(canvasRef.current, qr, { amount: reg.total, merchant: info.merchant || "QRIS", code: reg.code, nmid: info.nmid });
+          }).catch(() => alive && setQrError("QRIS gagal dimuat. Periksa koneksi lalu muat ulang halaman."));
+          return () => { alive = false; };
+        }, [payload]);
+
+        function simpan() {
+          if (!canvasRef.current) return;
+          const a = document.createElement("a");
+          a.href = canvasRef.current.toDataURL("image/png");
+          a.download = "QRIS-" + reg.code + ".png";
+          document.body.appendChild(a); a.click(); a.remove();
+        }
+
+        async function sudahBayar() {
+          setClaiming(true); setClaimError("");
+          const res = await apiClaimPayment(reg.code, proof);
+          setClaiming(false);
+          if (!res.ok) { setClaimError(res.error); return; }
+          onClaimed && onClaimed(res.data.paymentClaimedAt || new Date().toISOString(), res.data.paymentStatus);
+        }
+
         return (
-          <div className="rounded-xl border border-dashed border-orange/40 bg-orange/5 p-4 text-sm">
-            <p className="font-bold text-brand-dark">Instruksi Transfer</p>
-            <p className="mt-1 text-ink/70">
-              Transfer <span className="font-bold text-brand-dark">{formatRupiah(total)}</span> ke:
-            </p>
-            <p className="mt-2 font-bold text-brand-dark">{SITE.bankName}</p>
-            <p className="text-ink/70">
-              {SITE.accountNumber} a.n. {SITE.accountHolder}
-            </p>
-            <p className="mt-2 text-ink/70">
-              Sertakan kode <span className="font-mono font-bold text-brand-dark">{code}</span> pada
-              kolom berita/catatan transfer agar mudah diverifikasi. Jika aplikasi bank Anda tidak
-              punya kolom catatan, kirim bukti transfer ke WhatsApp admin.
-            </p>
+          <div className="space-y-3">
+            <div className="rounded-xl border border-brand-100 bg-white p-4 text-center">
+              <p className="text-xs font-bold uppercase tracking-widest text-ink/50">Bayar dengan QRIS</p>
+              <p className="mt-1 text-2xl font-extrabold text-brand-dark">{formatRupiah(reg.total)}</p>
+              {reg.uniqueCode ? (
+                <p className="mt-0.5 text-xs text-ink/60">
+                  Termasuk kode unik <span className="font-bold text-brand-dark">{formatRupiah(reg.uniqueCode)}</span> — bayar <b>tepat</b> sesuai nominal ini.
+                </p>
+              ) : null}
+              <div className="mx-auto mt-3 max-w-[260px]">
+                {qrError
+                  ? <p className="rounded-lg bg-orange/10 p-3 text-xs text-orange">{qrError}</p>
+                  : <canvas ref={canvasRef} className="h-auto w-full rounded-lg border border-slate-200" aria-label={"QRIS pembayaran " + reg.code} />}
+              </div>
+              <p className="mt-2 text-xs text-ink/55">
+                Nama penerima di aplikasi: <span className="font-semibold text-brand-dark">{info.merchant}</span>{info.nmid ? " · NMID " + info.nmid : ""}
+                <br />QRIS resmi milik LAZNAS YAKESMA
+              </p>
+              <button type="button" onClick={simpan} disabled={!!qrError}
+                className="mt-3 inline-flex items-center justify-center rounded-lg border border-brand-100 px-3 py-2 text-xs font-bold text-brand-dark hover:bg-brand-50 disabled:opacity-50">
+                ⬇ Simpan Gambar QRIS
+              </button>
+              <p className="mx-auto mt-2 max-w-xs text-[11px] leading-relaxed text-ink/50">
+                Bayar dari HP ini? Simpan gambar QRIS, lalu buka aplikasi e-wallet/m-banking → Scan/QRIS → pilih gambar dari galeri.
+              </p>
+            </div>
+
+            {claimed ? (
+              <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-sm">
+                <p className="font-bold text-brand-dark">✓ Terima kasih, pembayaran Anda sedang diverifikasi</p>
+                <p className="mt-1 text-ink/70">Tim kami mencocokkan pembayaran dengan mutasi QRIS. Konfirmasi lunas dikirim lewat email. Pesanan tidak akan dibatalkan selama proses verifikasi.</p>
+              </div>
+            ) : (
+              <div>
+                <button type="button" onClick={sudahBayar} disabled={claiming}
+                  className="flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition hover:bg-brand-600 disabled:opacity-60">
+                  {claiming ? "Menyimpan…" : "Saya sudah bayar"}
+                </button>
+                {claimError && <p className="mt-1.5 text-xs font-medium text-orange">{claimError}</p>}
+              </div>
+            )}
+
+            {SITE.whatsapp && (
+              <a href={payWhatsAppUrl(reg.code, reg.total)} target="_blank" rel="noopener noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-brand px-4 py-3 text-sm font-bold text-brand transition hover:bg-brand-50">
+                <IconWhatsApp className="size-4" />{claimed ? "Kirim bukti bayar via WhatsApp" : "Butuh bantuan? Chat CS"}
+              </a>
+            )}
+            {!claimed && (
+              <p className="rounded-lg bg-orange/5 px-3 py-2 text-xs font-semibold text-orange">
+                ⏰ Bayar sebelum {deadlineText || "24 jam setelah mendaftar"}. Pesanan yang belum dibayar dibatalkan otomatis.
+              </p>
+            )}
+          </div>
+        );
+      }
+
+      function PaymentInfo({ reg, proof, onClaimed }) {
+        const code = reg.code, total = reg.total;
+        if (hasQris()) return <QrisPayment reg={reg} proof={proof || { email: reg.email }} onClaimed={onClaimed} />;
+        return (
+          <div className="space-y-3">
+            {SITE.whatsapp && (
+              <a href={payWhatsAppUrl(code, total)} target="_blank" rel="noopener noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition hover:bg-brand-600">
+                <IconWhatsApp className="size-5" />Bayar via WhatsApp
+              </a>
+            )}
+            <div className="rounded-xl border border-dashed border-orange/40 bg-orange/5 p-4 text-sm">
+              {SITE.accountNumber ? (
+                <React.Fragment>
+                  <p className="font-bold text-brand-dark">Instruksi Transfer</p>
+                  <p className="mt-1 text-ink/70">
+                    Transfer <span className="font-bold text-brand-dark">{formatRupiah(total)}</span> ke:
+                  </p>
+                  <p className="mt-2 font-bold text-brand-dark">{SITE.bankName}</p>
+                  <p className="text-ink/70">
+                    {SITE.accountNumber} a.n. {SITE.accountHolder}
+                  </p>
+                  <p className="mt-2 text-ink/70">
+                    Sertakan kode <span className="font-mono font-bold text-brand-dark">{code}</span> pada
+                    kolom berita/catatan transfer, lalu kirim bukti transfer lewat tombol WhatsApp di atas.
+                  </p>
+                </React.Fragment>
+              ) : (
+                <p className="text-ink/70">
+                  Total pembayaran <span className="font-bold text-brand-dark">{formatRupiah(total)}</span>.
+                  Klik tombol di atas — CS kami akan mengirimkan nomor rekening/QRIS, lalu kirim bukti
+                  transfer di chat yang sama dengan menyertakan kode <span className="font-mono font-bold text-brand-dark">{code}</span>.
+                </p>
+              )}
+              <p className="mt-2 border-t border-orange/20 pt-2 text-xs font-semibold text-orange">
+                ⏰ Selesaikan pembayaran dalam 24 jam setelah mendaftar. Pesanan yang belum dibayar dibatalkan otomatis.
+              </p>
+            </div>
           </div>
         );
       }
@@ -944,7 +1286,13 @@
         );
       }
 
-      function TicketCard({ reg, free, onCancelled }) {
+      // Frasa "saya peserta terdaftar" adalah trigger BalesOtomatis untuk menu utama CS — jangan diubah tanpa menyesuaikan trigger-nya.
+      function csWhatsAppUrl(reg) {
+        const text = "Halo YAKESMA, saya peserta terdaftar " + reg.title + ".\nKode tiket: " + reg.code;
+        return "https://wa.me/" + SITE.whatsapp + "?text=" + encodeURIComponent(text);
+      }
+
+      function TicketCard({ reg, free, onCancelled, onClaimed }) {
         const pending = reg.paymentStatus === "pending_transfer";
         const cancelled = reg.paymentStatus === "cancelled";
         return (
@@ -952,10 +1300,10 @@
             <div className={(pending || cancelled) ? "bg-gold/10 px-5 py-5 text-center" : "bg-brand-50 px-5 py-5 text-center"}>
               <IconCheckCircle className={(pending || cancelled) ? "mx-auto size-12 text-orange" : "mx-auto size-12 text-brand"} />
               <h3 className="mt-2 text-lg font-extrabold text-brand-dark">
-                {cancelled ? "Pesanan Dibatalkan" : free ? "Pendaftaran Berhasil!" : pending ? "Menunggu Konfirmasi Pembayaran" : "Pesanan Diterima!"}
+                {cancelled ? "Pesanan Dibatalkan" : free ? "Pendaftaran Berhasil!" : pending ? (hasQris() && !reg.paymentClaimedAt ? "Selesaikan Pembayaran" : "Menunggu Konfirmasi Pembayaran") : "Pesanan Diterima!"}
               </h3>
               <p className="mt-1 text-sm text-ink/60">
-                {cancelled ? "Anda bisa mendaftar ulang untuk event ini kapan saja." : "Tunjukkan kode ini saat registrasi ulang."}
+                {cancelled ? "Sudah transfer? Hubungi CS kami lewat WhatsApp. Anda juga bisa mendaftar ulang kapan saja." : "Tunjukkan kode ini saat registrasi ulang."}
               </p>
             </div>
             <div className="space-y-4 px-5 py-5">
@@ -965,19 +1313,25 @@
                 <Barcode seed={reg.code} />
               </div>
 
-              {pending && (reg.paymentUrl ? <PayButton url={reg.paymentUrl} /> : <BankInfo code={reg.code} total={reg.total} />)}
-              {pending && onCancelled && (
+              {pending && <PaymentInfo reg={reg} onClaimed={onClaimed} />}
+              {pending && onCancelled && !reg.paymentClaimedAt && (
                 <CancelOrderButton code={reg.code} email={reg.email} onCancelled={onCancelled} />
               )}
 
               <dl className="space-y-2 text-sm">
                 <TicketRow label="Event" value={reg.title} />
+                {reg.packageName && <TicketRow label="Paket" value={reg.packageName} />}
                 <TicketRow label="Tanggal" value={formatTanggal(reg.eventDate)} />
                 <TicketRow label="Lokasi" value={reg.location} />
                 <TicketRow label="Nama" value={reg.name} />
                 <TicketRow label={free ? "Peserta" : "Tiket"} value={String(reg.quantity)} />
                 {!free && <TicketRow label="Total" value={formatRupiah(reg.total)} strong />}
               </dl>
+              {SITE.whatsapp && !pending && (
+                <a href={csWhatsAppUrl(reg)} target="_blank" rel="noopener noreferrer" className="flex w-full items-center justify-center gap-2 rounded-xl border border-brand px-4 py-3 text-sm font-bold text-brand transition hover:bg-brand-50">
+                  <IconWhatsApp className="size-4" />Hubungi CS via WhatsApp
+                </a>
+              )}
               <Link to="/event-saya" className="flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Lihat di Event Saya</Link>
               <Link to="/event" className="flex w-full items-center justify-center rounded-xl border border-brand-100 px-4 py-3 text-sm font-semibold text-brand-dark transition hover:bg-brand-50">Daftar Event Lain</Link>
             </div>
@@ -990,16 +1344,57 @@
           address: "", provinceId: "", province: "", cityId: "", city: "",
           districtId: "", district: "", subdistrictId: "", subdistrict: "",
           postalCode: "", shirtSizes: [], courier: COURIER,
+          // Hasil cek kode pos untuk kelurahan terpilih — hanya dipakai di browser, tidak ikut dikirim.
+          postalCheck: null, postalOverride: false,
         };
       }
 
-      function ShippingFields({ shipping, setShipping, sizeChartImage }) {
+      function PostalCodeStatus({ shipping, setPostal }) {
+        const pc = shipping.postalCheck;
+        if (!pc) return null;
+        const chip = "rounded-full border px-3 py-1 text-xs font-bold transition";
+        if (pc.status === "loading") return <p className="mt-1.5 text-xs text-ink/50">Mencari kode pos untuk kelurahan ini…</p>;
+        if (pc.status === "notfound" || pc.status === "error") {
+          return <p className="mt-1.5 text-xs text-ink/55">Kode pos untuk kelurahan ini tidak bisa dicek otomatis. Silakan isi manual sesuai alamat Anda.</p>;
+        }
+        const area = pc.level === "desa" ? "Kel. " + titleCase(shipping.subdistrict) + ", Kec. " + titleCase(shipping.district) : "Kec. " + titleCase(shipping.district);
+        const matches = pc.codes.indexOf(shipping.postalCode) !== -1;
+        if (matches) {
+          return <p className="mt-1.5 text-xs font-semibold text-brand-700">✓ Kode pos sesuai {area}</p>;
+        }
+        if (shipping.postalOverride) {
+          return (
+            <p className="mt-1.5 text-xs text-ink/55">
+              Kode pos diisi manual — pastikan sesuai alamat pengiriman.{" "}
+              <button type="button" onClick={() => setPostal(pc.codes.length === 1 ? pc.codes[0] : "", false)} className="font-semibold text-brand hover:underline">Pakai kode pos yang disarankan</button>
+            </p>
+          );
+        }
+        return (
+          <div className={"mt-2 rounded-lg px-3 py-2.5 text-xs " + (shipping.postalCode ? "bg-orange/10" : "bg-white")}>
+            <p className={shipping.postalCode ? "font-semibold text-orange" : "font-semibold text-brand-dark"}>
+              {shipping.postalCode ? "Kode pos " + shipping.postalCode + " tidak sesuai dengan " + area + "." : "Pilih kode pos untuk " + area + ":"}
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {pc.codes.map((c) => (
+                <button key={c} type="button" onClick={() => setPostal(c, false)} className={chip + " border-brand bg-white text-brand-dark hover:bg-brand-50"}>{c}</button>
+              ))}
+              <button type="button" onClick={() => setPostal(shipping.postalCode, true)} className="ml-1 font-semibold text-ink/50 underline hover:text-ink">Kode pos saya berbeda</button>
+            </div>
+          </div>
+        );
+      }
+      function titleCase(s) { return String(s || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()); }
+
+      function ShippingFields({ shipping, setShipping, sizeChartImage, shipQuote, needsSizes = true }) {
         const [provinces, setProvinces] = useState([]);
         const [regencies, setRegencies] = useState([]);
         const [districts, setDistricts] = useState([]);
         const [villages, setVillages] = useState([]);
         const [loadingLevel, setLoadingLevel] = useState("province");
         const [showSizeChart, setShowSizeChart] = useState(false);
+        const postalReq = React.useRef(0);
+        const POSTAL_RESET = { postalCode: "", postalCheck: null, postalOverride: false };
 
         useEffect(() => {
           fetchProvinces().then((list) => { setProvinces(list); setLoadingLevel(null); });
@@ -1007,7 +1402,8 @@
 
         function onProvinceChange(id) {
           const found = provinces.find((p) => p.id === id);
-          setShipping((s) => Object.assign({}, s, {
+          postalReq.current++;
+          setShipping((s) => Object.assign({}, s, POSTAL_RESET, {
             provinceId: id, province: found ? found.name : "",
             cityId: "", city: "", districtId: "", district: "", subdistrictId: "", subdistrict: "",
           }));
@@ -1018,7 +1414,8 @@
         }
         function onCityChange(id) {
           const found = regencies.find((r) => r.id === id);
-          setShipping((s) => Object.assign({}, s, {
+          postalReq.current++;
+          setShipping((s) => Object.assign({}, s, POSTAL_RESET, {
             cityId: id, city: found ? found.name : "",
             districtId: "", district: "", subdistrictId: "", subdistrict: "",
           }));
@@ -1029,7 +1426,8 @@
         }
         function onDistrictChange(id) {
           const found = districts.find((d) => d.id === id);
-          setShipping((s) => Object.assign({}, s, {
+          postalReq.current++;
+          setShipping((s) => Object.assign({}, s, POSTAL_RESET, {
             districtId: id, district: found ? found.name : "", subdistrictId: "", subdistrict: "",
           }));
           setVillages([]);
@@ -1039,7 +1437,26 @@
         }
         function onVillageChange(id) {
           const found = villages.find((v) => v.id === id);
-          setShipping((s) => Object.assign({}, s, { subdistrictId: id, subdistrict: found ? found.name : "" }));
+          const req = ++postalReq.current;
+          setShipping((s) => Object.assign({}, s, POSTAL_RESET, {
+            subdistrictId: id, subdistrict: found ? found.name : "",
+            postalCheck: found ? { status: "loading" } : null,
+          }));
+          if (!found) return;
+          lookupPostalCodes(found.name, shipping.district, shipping.city)
+            .then((r) => {
+              if (req !== postalReq.current) return;
+              setShipping((s) => Object.assign({}, s, r
+                ? { postalCheck: { status: "matched", level: r.level, codes: r.codes }, postalCode: r.codes.length === 1 ? r.codes[0] : "" }
+                : { postalCheck: { status: "notfound" } }));
+            })
+            .catch(() => {
+              if (req !== postalReq.current) return;
+              setShipping((s) => Object.assign({}, s, { postalCheck: { status: "error" } }));
+            });
+        }
+        function setPostal(code, override) {
+          setShipping((s) => Object.assign({}, s, { postalCode: code, postalOverride: !!override }));
         }
 
         const selCls = "w-full rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:bg-ink/5 disabled:text-ink/40";
@@ -1092,10 +1509,12 @@
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kode Pos</label>
                 <input inputMode="numeric" maxLength={5} value={shipping.postalCode}
-                  onChange={(e) => setShipping((s) => Object.assign({}, s, { postalCode: e.target.value.replace(/\D/g, "").slice(0, 5) }))}
-                  placeholder="80111" className={selCls} />
+                  onChange={(e) => setPostal(e.target.value.replace(/\D/g, "").slice(0, 5), shipping.postalOverride)}
+                  placeholder={shipping.postalCheck && shipping.postalCheck.status === "loading" ? "Mencari kode pos…" : "Pilih kelurahan dulu"}
+                  className={selCls} />
+                <PostalCodeStatus shipping={shipping} setPostal={setPostal} />
               </div>
-              <div>
+              <div className={needsSizes ? "" : "hidden"}>
                 <div className="mb-1.5 flex items-center justify-between gap-2">
                   <label className="block text-sm font-semibold text-brand-dark">
                     {shipping.shirtSizes.length > 1 ? "Ukuran Jersey per Peserta" : "Ukuran Jersey"}
@@ -1131,7 +1550,12 @@
                 <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kurir</label>
                 <div className="flex items-center justify-between rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm">
                   <span className="font-semibold text-brand-dark">POS Indonesia</span>
-                  <span className="text-ink/55">{shipping.province ? "Ongkir " + formatRupiah(posShippingFee(shipping.province)) : "Ongkir dihitung setelah provinsi dipilih"}</span>
+                  <span className="text-right text-ink/55">
+                    {!shipQuote ? "Ongkir dihitung setelah alamat & kode pos lengkap"
+                      : shipQuote.status === "loading" ? "Menghitung ongkir…"
+                      : shipQuote.status === "error" ? "Ongkir gagal dihitung, periksa kode pos"
+                      : <React.Fragment>Ongkir <b className="text-brand-dark">{formatRupiah(shipQuote.fee)}</b><span className="block text-xs">Estimasi {shipQuote.sla} hari</span></React.Fragment>}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1156,7 +1580,7 @@
       function DonationField({ label, amount, setAmount }) {
         return (
           <div className="space-y-2.5 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
-            <p className="text-sm font-bold text-brand-dark">Donasi Tambahan (Opsional)</p>
+            <p className="text-sm font-bold text-brand-dark">Donasi Pohon Tambahan (Opsional)</p>
             {label && <p className="text-xs text-ink/60">{label}</p>}
             <div className="flex flex-wrap gap-2">
               {DONATION_PRESETS.map((p) => (
@@ -1178,8 +1602,18 @@
         );
       }
 
-      function RegistrationForm({ event }) {
-        const free = event.price <= 0;
+      function RegistrationForm({ event, paketParam }) {
+        // Katalog paket: paket internal (testing) hanya tampil kalau dibuka lewat link ?paket=<kode>.
+        const activePkgs = (event.packages || []).filter((p) => p.active);
+        const hasPkgs = activePkgs.length > 0;
+        const visiblePkgs = activePkgs.filter((p) => !p.internal || p.id === paketParam);
+        const [pkgId, setPkgId] = useState(() => {
+          const fromLink = visiblePkgs.find((p) => p.id === paketParam);
+          return fromLink ? fromLink.id : visiblePkgs.length === 1 ? visiblePkgs[0].id : "";
+        });
+        const pkg = visiblePkgs.find((p) => p.id === pkgId) || null;
+        const unitPrice = hasPkgs ? (pkg ? pkg.price : 0) : event.price;
+        const free = hasPkgs ? !!pkg && pkg.price <= 0 : event.price <= 0;
         const [name, setName] = useState("");
         const [email, setEmail] = useState("");
         const [phone, setPhone] = useState("");
@@ -1190,13 +1624,29 @@
         const [submitting, setSubmitting] = useState(false);
         const [shipping, setShipping] = useState(emptyShipping);
         const [donation, setDonation] = useState(0);
-        const needsShipping = !!event.requiresShipping;
+        const needsShipping = hasPkgs ? !!pkg && (pkg.medal || pkg.jersey) : !!event.requiresShipping;
+        const needsSizes = hasPkgs ? !!pkg && pkg.jersey : needsShipping;
         const donationEnabled = !!event.donationEnabled;
-        const shirtSurchargeTotal = needsShipping
+        const shirtSurchargeTotal = needsSizes
           ? shipping.shirtSizes.reduce((sum, sz) => sum + (SHIRT_SIZE_SURCHARGE[sz] || 0), 0)
           : 0;
-        const shippingFeeTotal = needsShipping && shipping.province ? posShippingFee(shipping.province) : 0;
-        const grandTotal = event.price * qty + shirtSurchargeTotal + shippingFeeTotal + donation;
+        const [shipQuote, setShipQuote] = useState(null); // null | {status:"loading"|"ok"|"error", fee, sla}
+        const shippingFeeTotal = needsShipping && shipQuote && shipQuote.status === "ok" ? shipQuote.fee : 0;
+        useEffect(() => {
+          if (!needsShipping) return;
+          const complete = shipping.province && shipping.city && shipping.district && /^\d{5}$/.test(shipping.postalCode);
+          if (!complete) { setShipQuote(null); return; }
+          let stale = false;
+          setShipQuote({ status: "loading" });
+          const t = setTimeout(() => {
+            apiShippingQuote(shipping).then((q) => {
+              if (stale) return;
+              setShipQuote(q && q.fee > 0 ? { status: "ok", fee: q.fee, sla: q.sla } : { status: "error" });
+            });
+          }, 300);
+          return () => { stale = true; clearTimeout(t); };
+        }, [needsShipping, shipping.province, shipping.city, shipping.district, shipping.postalCode]);
+        const grandTotal = unitPrice * qty + shirtSurchargeTotal + shippingFeeTotal + donation;
 
         useEffect(() => {
           const acc = getAccount();
@@ -1210,42 +1660,55 @@
           // dibatalkan dari perangkat/tab lain) — sebaik mungkin, gagal diam-diam
           // jika offline, cache lama tetap dipakai.
           apiLookupStatus(existing.code, existing.email).then((res) => {
-            if (res.ok && res.data.paymentStatus && res.data.paymentStatus !== existing.paymentStatus) {
-              const patch = { paymentStatus: res.data.paymentStatus };
-              updateRegistrationInCache(existing.id, patch);
-              if (res.data.paymentStatus === "cancelled") { setAlready(null); return; }
-              setAlready((prev) => (prev ? Object.assign({}, prev, patch) : prev));
-            }
+            if (!res.ok || !res.data.paymentStatus) return;
+            const patch = serverPatch(existing, res.data);
+            if (!patch) return;
+            updateRegistrationInCache(existing.id, patch);
+            if (res.data.paymentStatus === "cancelled") { setAlready(null); return; }
+            setAlready((prev) => (prev ? Object.assign({}, prev, patch) : prev));
           });
         }, [event.slug]);
 
         // Satu ukuran jersey per peserta — panjang shirtSizes ikut jumlah tiket,
         // isi yang sudah dipilih dipertahankan saat jumlah berubah.
         useEffect(() => {
-          if (!needsShipping) return;
+          if (!needsSizes) return;
           setShipping((s) => {
             const sizes = s.shirtSizes.slice(0, qty);
             while (sizes.length < qty) sizes.push("");
             return Object.assign({}, s, { shirtSizes: sizes });
           });
-        }, [qty, needsShipping]);
+        }, [qty, needsSizes]);
 
         async function handleSubmit(e) {
           e.preventDefault();
           if (!name.trim() || !email.trim() || !phone.trim()) { setError("Mohon lengkapi nama, email, dan nomor WhatsApp."); return; }
           if (!/^\S+@\S+\.\S+$/.test(email)) { setError("Format email belum benar."); return; }
+          if (hasPkgs && !pkg) { setError("Pilih paket terlebih dahulu."); return; }
           if (needsShipping) {
             if (!shipping.address.trim()) { setError("Alamat wajib diisi."); return; }
             if (!shipping.province || !shipping.city || !shipping.district || !shipping.subdistrict) {
               setError("Provinsi, kota, kecamatan, dan kelurahan wajib diisi."); return;
             }
             if (!/^\d{5}$/.test(shipping.postalCode)) { setError("Kode pos harus 5 digit angka."); return; }
-            if (shipping.shirtSizes.length !== qty || shipping.shirtSizes.some((sz) => !sz)) {
+            const pc = shipping.postalCheck;
+            if (pc && pc.status === "loading") { setError("Kode pos sedang dicek, tunggu sebentar."); return; }
+            if (pc && pc.status === "matched" && pc.codes.indexOf(shipping.postalCode) === -1 && !shipping.postalOverride) {
+              setError("Kode pos tidak sesuai dengan kelurahan yang dipilih. Pilih kode pos yang disarankan."); return;
+            }
+            if (needsSizes && (shipping.shirtSizes.length !== qty || shipping.shirtSizes.some((sz) => !sz))) {
               setError("Pilih ukuran jersey untuk setiap peserta."); return;
+            }
+            if (!shipQuote || shipQuote.status !== "ok") {
+              setError(shipQuote && shipQuote.status === "loading" ? "Ongkir sedang dihitung, tunggu sebentar." : "Ongkir belum bisa dihitung. Periksa alamat dan kode pos."); return;
             }
           }
           setError("");
           setSubmitting(true);
+          // Dibuat SEKALI di sini, dipakai ulang di CAPI (server, lewat
+          // payload) dan Pixel (browser, di bawah setelah sukses) supaya
+          // Meta deduplikasi keduanya jadi satu konversi.
+          const eventId = metaEventId();
           const result = await apiRegister({
             eventSlug: event.slug,
             eventTitle: event.title,
@@ -1256,7 +1719,8 @@
             email: email.trim(),
             phone: phone.trim(),
             quantity: qty,
-            unitPrice: event.price,
+            unitPrice: unitPrice,
+            packageId: pkg ? pkg.id : undefined,
             donationAmount: donation,
             shipping: needsShipping ? {
               address: shipping.address.trim(),
@@ -1265,22 +1729,41 @@
               district: shipping.district,
               subdistrict: shipping.subdistrict,
               postalCode: shipping.postalCode,
-              shirtSizes: shipping.shirtSizes,
+              shirtSizes: needsSizes ? shipping.shirtSizes : [],
               courier: shipping.courier,
             } : undefined,
+            metaEventId: eventId,
+            metaFbp: readCookie("_fbp"),
+            metaFbc: readCookie("_fbc"),
           });
           setSubmitting(false);
           if (!result.ok) { setError(result.error); return; }
 
+          if (window.fbq && !(pkg && pkg.internal)) {
+            // "InitiateCheckout" untuk berbayar (bukan "Purchase") -- checkout
+            // lewat transfer manual/WA, uang belum tentu masuk di titik ini.
+            // "Purchase" sungguhan ditembak dari server saat admin/Xendit
+            // benar-benar mengonfirmasi pembayaran, bukan dari sini.
+            fbq("track", result.data.totalAmount > 0 ? "InitiateCheckout" : "CompleteRegistration", {
+              content_ids: [event.slug],
+              content_name: event.title,
+              content_type: "product",
+              value: result.data.totalAmount,
+              currency: "IDR",
+            }, { eventID: eventId });
+          }
+
           const reg = {
             id: result.data.id, slug: event.slug, title: event.title, category: event.category,
             name: name.trim(), email: email.trim(), phone: phone.trim(),
-            quantity: qty, unitPrice: event.price, total: result.data.totalAmount,
+            quantity: qty, unitPrice: unitPrice, total: result.data.totalAmount,
+            packageName: pkg ? pkg.name : "",
             code: result.data.ticketCode, paymentStatus: result.data.paymentStatus,
             paymentUrl: result.data.paymentUrl || null,
+            uniqueCode: result.data.uniqueCode || null, paymentClaimedAt: null,
             eventDate: event.date,
             location: event.online ? "Online" : event.location + ", " + event.city,
-            createdAt: new Date().toISOString(),
+            createdAt: result.data.createdAt || new Date().toISOString(),
           };
           saveRegistration(reg);
           saveAccount({ name: reg.name, email: reg.email, phone: reg.phone });
@@ -1293,6 +1776,10 @@
             <TicketCard reg={done} free={free} onCancelled={() => {
               updateRegistrationInCache(done.id, { paymentStatus: "cancelled" });
               setDone((d) => (d ? Object.assign({}, d, { paymentStatus: "cancelled" }) : d));
+            }} onClaimed={(at, status) => {
+              const patch = { paymentClaimedAt: at, paymentStatus: status || done.paymentStatus };
+              updateRegistrationInCache(done.id, patch);
+              setDone((d) => (d ? Object.assign({}, d, patch) : d));
             }} />
           );
         }
@@ -1304,25 +1791,31 @@
                   <IconCheckCircle className="size-6 text-brand" />
                   <p className="font-bold">Anda sudah terdaftar</p>
                 </div>
-                <StatusBadge status={already.paymentStatus} />
+                <StatusBadge status={already.paymentStatus} claimed={!!already.paymentClaimedAt} />
               </div>
               <p className="text-sm text-ink/60">
                 Kode tiket Anda: <span className="font-mono font-bold text-brand-dark">{already.code}</span>
               </p>
               {already.paymentStatus === "pending_transfer" && (
                 <React.Fragment>
-                  {already.paymentUrl ? <PayButton url={already.paymentUrl} /> : <BankInfo code={already.code} total={already.total} />}
-                  <CancelOrderButton code={already.code} email={already.email} onCancelled={() => {
-                    updateRegistrationInCache(already.id, { paymentStatus: "cancelled" });
-                    setAlready(null);
+                  <PaymentInfo reg={already} onClaimed={(at, status) => {
+                    const patch = { paymentClaimedAt: at, paymentStatus: status || already.paymentStatus };
+                    updateRegistrationInCache(already.id, patch);
+                    setAlready((prev) => (prev ? Object.assign({}, prev, patch) : prev));
                   }} />
+                  {!already.paymentClaimedAt && (
+                    <CancelOrderButton code={already.code} email={already.email} onCancelled={() => {
+                      updateRegistrationInCache(already.id, { paymentStatus: "cancelled" });
+                      setAlready(null);
+                    }} />
+                  )}
                 </React.Fragment>
               )}
               <Link to="/event-saya" className="flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Lihat di Event Saya</Link>
             </div>
           );
 
-        const todayIso = new Date().toISOString().slice(0, 10);
+        const todayIso = todayIsoWIB();
         if (event.registrationStart && todayIso < event.registrationStart) {
           return (
             <div className="space-y-2 rounded-2xl border border-brand-100 bg-white p-5 text-center shadow-sm">
@@ -1344,10 +1837,14 @@
 
         return (
           <form onSubmit={handleSubmit} className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-baseline justify-between">
-              <span className="text-sm font-semibold text-ink/60">Harga</span>
-              <span className="text-xl font-extrabold text-brand-dark">{formatRupiah(event.price)}</span>
-            </div>
+            {hasPkgs ? (
+              <PackagePicker packages={visiblePkgs} value={pkgId} onChange={setPkgId} />
+            ) : (
+              <div className="mb-4 flex items-baseline justify-between">
+                <span className="text-sm font-semibold text-ink/60">Harga</span>
+                <span className="text-xl font-extrabold text-brand-dark">{formatRupiah(event.price)}</span>
+              </div>
+            )}
             <div className="space-y-3">
               <Field label="Nama Lengkap" value={name} onChange={setName} placeholder="Nama sesuai identitas" />
               <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="nama@email.com" />
@@ -1367,8 +1864,8 @@
             {(!free || donationEnabled) && (
               <div className="mt-4 space-y-1.5 border-t border-brand-50 pt-4">
                 <div className="flex items-center justify-between text-sm text-ink/60">
-                  <span>Tiket × {qty}</span>
-                  <span>{free ? "Gratis" : formatRupiah(event.price * qty)}</span>
+                  <span>{pkg ? pkg.name : "Tiket"} × {qty}</span>
+                  <span>{hasPkgs && !pkg ? "—" : free ? "Gratis" : formatRupiah(unitPrice * qty)}</span>
                 </div>
                 {donation > 0 && (
                   <div className="flex items-center justify-between text-sm text-ink/60">
@@ -1385,7 +1882,7 @@
                 {needsShipping && (
                   <div className="flex items-center justify-between text-sm text-ink/60">
                     <span>Ongkir POS Indonesia</span>
-                    <span>{shipping.province ? formatRupiah(shippingFeeTotal) : "—"}</span>
+                    <span>{shipQuote && shipQuote.status === "ok" ? formatRupiah(shippingFeeTotal) : shipQuote && shipQuote.status === "loading" ? "Menghitung…" : "—"}</span>
                   </div>
                 )}
                 <div className="flex items-center justify-between pt-1">
@@ -1396,7 +1893,7 @@
             )}
             {needsShipping && (
               <div className="mt-4">
-                <ShippingFields shipping={shipping} setShipping={setShipping} sizeChartImage={event.sizeChartImage} />
+                <ShippingFields shipping={shipping} setShipping={setShipping} sizeChartImage={event.sizeChartImage} shipQuote={shipQuote} needsSizes={needsSizes} />
               </div>
             )}
             {error && <p className="mt-3 rounded-lg bg-orange/10 px-3 py-2 text-sm font-medium text-orange">{error}</p>}
@@ -1421,11 +1918,15 @@
       }
 
       function BottomNav({ path }) {
-        const ICONS = { home: IconHome, calendar: IconCalendar, ticket: IconTicket, user: IconUser };
+        const ICONS = { home: IconHome, calendar: IconCalendar, ticket: IconTicket, user: IconUser, medal: IconMedal };
+        // Menu "Setor Lari" hanya muncul selama ada event yang mengaktifkan setor bukti lari di admin.
+        const items = EVENTS.some((e) => e.runSubmission)
+          ? NAV.slice(0, 3).concat({ href: "/setor-lari", label: "Setor Lari", icon: "medal" }, NAV.slice(3))
+          : NAV;
         return (
           <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-black/5 bg-white/95 backdrop-blur-md">
-            <div className="mx-auto grid max-w-md grid-cols-4">
-              {NAV.map((item) => {
+            <div className="mx-auto grid max-w-md" style={{ gridTemplateColumns: "repeat(" + items.length + ", minmax(0, 1fr))" }}>
+              {items.map((item) => {
                 const Icon = ICONS[item.icon];
                 const active = item.href === "/" ? path === "/" : path === item.href || path.startsWith(item.href + "/");
                 return (
@@ -1455,9 +1956,10 @@
       }
 
       function Home() {
-        const upcoming = [...EVENTS].sort((a, b) => a.date.localeCompare(b.date));
+        const upcoming = [...EVENTS].sort(compareEventsForList);
         const terbaru = upcoming.slice(0, 6);
-        const totalPeserta = EVENTS.reduce((s, e) => s + e.registered, 0);
+        const totalPeserta = EVENTS.reduce((s, e) => s + registeredCount(e), 0);
+        const eventAktifCount = EVENTS.filter((e) => !isEventFinished(e)).length;
         return (
           <Container className="space-y-10">
             <section className="animate-in relative overflow-hidden rounded-3xl p-6 text-white shadow-lg shadow-brand/15 sm:p-9" style={{ backgroundImage: `linear-gradient(135deg,${SITE.colors.green},${SITE.colors.dark})` }}>
@@ -1471,7 +1973,7 @@
                   <a href={"https://wa.me/" + SITE.whatsapp} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-full border border-white/40 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"><IconWhatsApp className="size-4" />Hubungi Kami</a>
                 </div>
                 <div className="mt-7 flex flex-wrap gap-x-6 gap-y-2 text-sm">
-                  <Stat value={String(EVENTS.length)} label="Event aktif" />
+                  <Stat value={String(eventAktifCount)} label="Event aktif" />
                   <Stat value={totalPeserta.toLocaleString("id-ID") + "+"} label="Peserta terdaftar" />
                   <Stat value="Gratis & Berbayar" label="Pilihan program" />
                 </div>
@@ -1579,11 +2081,27 @@
         );
       }
 
-      function EventDetail({ slug }) {
+      function EventDetail({ slug, paket }) {
         const event = getEvent(slug);
+        // Hook dipanggil sebelum early-return apa pun (aturan React) — isinya
+        // sendiri sudah aman kalau event tidak ada, jadi tidak menembak apa-apa.
+        useEffect(() => {
+          if (!event || !window.fbq) return;
+          // Kunjungan lewat link paket internal (testing karyawan) tidak dikirim ke Meta.
+          if (paket && (event.packages || []).some((p) => p.id === paket && p.internal)) return;
+          fbq('track', 'ViewContent', {
+            content_ids: [event.slug],
+            content_name: event.title,
+            content_type: 'product',
+            value: eventPriceInfo(event).price || 0,
+            currency: 'IDR',
+          });
+        }, [event && event.slug]);
         if (!event) return <NotFound />;
-        const sisa = Math.max(0, event.quota - event.registered);
-        const pct = Math.min(100, Math.round((event.registered / event.quota) * 100));
+        const terisi = registeredCount(event);
+        const sisa = Math.max(0, event.quota - terisi);
+        const pct = Math.min(100, Math.round((terisi / event.quota) * 100));
+        const finished = isEventFinished(event);
         return (
           <Container className="space-y-5">
             <div className="flex items-center justify-between gap-3">
@@ -1603,7 +2121,7 @@
                     <Fact icon={IconCalendar} label={event.dateEnd ? "Pelaksanaan" : "Tanggal"} value={formatTanggalRange(event.date, event.dateEnd)} />
                     <Fact icon={IconClock} label="Waktu" value={formatWaktu(event.timeStart, event.timeEnd)} />
                     <Fact icon={IconMapPin} label="Lokasi" value={event.online ? event.location : event.location + ", " + event.city} />
-                    <Fact icon={IconUsers} label="Kuota" value={event.registered + " dari " + event.quota + " terisi"} />
+                    <Fact icon={IconUsers} label="Kuota" value={terisi + " dari " + event.quota + " terisi"} />
                     {(event.registrationStart || event.registrationEnd) && (
                       <Fact icon={IconCalendar} label="Pendaftaran"
                         value={
@@ -1643,9 +2161,23 @@
               </div>
 
               <aside className="space-y-4 lg:sticky lg:top-20 lg:col-start-3 lg:self-start">
-                <RegistrationForm event={event} />
+                {finished ? (
+                  <div className="rounded-2xl border border-brand-100 bg-white p-5 text-center shadow-sm">
+                    <span className="mx-auto grid size-12 place-items-center rounded-full bg-brand-50 text-2xl">🏁</span>
+                    <p className="mt-3 font-extrabold text-brand-dark">Event Sudah Terlaksana</p>
+                    <p className="mt-1.5 text-sm text-ink/60">
+                      Terima kasih untuk {terisi.toLocaleString("id-ID")} peserta yang sudah berpartisipasi. Nantikan event YAKESMA berikutnya!
+                    </p>
+                    <Link to="/event" className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-600">
+                      Lihat Event Lainnya
+                    </Link>
+                  </div>
+                ) : (
+                  <RegistrationForm event={event} paketParam={paket} />
+                )}
+                <RunEventCta event={event} />
                 <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
-                  <div className="flex items-center justify-between text-sm"><span className="text-ink/60">Kuota terisi</span><span className="font-bold text-brand-dark">{event.registered}/{event.quota}</span></div>
+                  <div className="flex items-center justify-between text-sm"><span className="text-ink/60">Kuota terisi</span><span className="font-bold text-brand-dark">{terisi}/{event.quota}</span></div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-brand-50"><div className="h-full rounded-full bg-brand" style={{ width: pct + "%" }} /></div>
                   <p className="mt-2 text-xs text-ink/55">{sisa > 0 ? "Sisa " + sisa + " kursi tersedia" : "Kuota penuh"}</p>
                 </div>
@@ -1665,10 +2197,11 @@
           cached.forEach((r) => {
             if (!r.code || !r.email) return;
             apiLookupStatus(r.code, r.email).then((res) => {
-              if (res.ok && res.data.paymentStatus && res.data.paymentStatus !== r.paymentStatus) {
-                updateRegistrationInCache(r.id, { paymentStatus: res.data.paymentStatus });
-                setRegs(getRegistrations());
-              }
+              if (!res.ok || !res.data.paymentStatus) return;
+              const patch = serverPatch(r, res.data);
+              if (!patch) return;
+              updateRegistrationInCache(r.id, patch);
+              setRegs(getRegistrations());
             });
           });
         }, []);
@@ -1691,6 +2224,7 @@
                 {regs.map((r) => {
                   const free = r.unitPrice <= 0;
                   const pending = r.paymentStatus === "pending_transfer";
+                  const runState = (r.paymentStatus === "paid" || r.paymentStatus === "free") ? runSubmissionState(getEvent(r.slug)) : null;
                   return (
                     <div key={r.id} className="animate-in overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm">
                       <div className="flex items-stretch">
@@ -1703,21 +2237,26 @@
                             <div className="min-w-0">
                               <span className="inline-block rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-bold text-brand-700">{r.category}</span>
                               <h3 className="mt-1.5 truncate font-bold text-brand-dark">{r.title}</h3>
+                              {r.packageName && <p className="text-xs font-semibold text-brand-700">{r.packageName}</p>}
                             </div>
-                            <StatusBadge status={r.paymentStatus} />
+                            <StatusBadge status={r.paymentStatus} claimed={!!r.paymentClaimedAt} />
                           </div>
                           <div className="mt-2 space-y-1 text-sm text-ink/60">
                             <p className="flex items-center gap-1.5"><IconCalendar className="size-4 text-brand" />{formatTanggal(r.eventDate)}</p>
                             <p className="flex items-center gap-1.5"><IconMapPin className="size-4 text-brand" /><span className="truncate">{r.location}</span></p>
                           </div>
-                          {pending && (
-                            <div className="mt-3 space-y-2">
-                              {r.paymentUrl ? <PayButton url={r.paymentUrl} /> : <BankInfo code={r.code} total={r.total} />}
-                              <CancelOrderButton code={r.code} email={r.email} onCancelled={() => {
-                                updateRegistrationInCache(r.id, { paymentStatus: "cancelled" });
-                                setRegs(getRegistrations());
-                              }} />
-                            </div>
+                          {r.paymentStatus === "cancelled" && r.cancelReason === "expired" && (
+                            <p className="mt-3 rounded-lg bg-orange/10 px-3 py-2 text-xs text-ink/70">
+                              Pesanan dibatalkan otomatis karena belum dibayar dalam 24 jam. Sudah transfer?{" "}
+                              <a href={"https://wa.me/" + SITE.whatsapp + "?text=" + encodeURIComponent("Halo YAKESMA, pesanan saya dibatalkan otomatis padahal sudah transfer.\nKode tiket: " + r.code)}
+                                target="_blank" rel="noopener noreferrer" className="font-semibold text-brand hover:underline">Hubungi CS</a>
+                            </p>
+                          )}
+                          {runState && runState !== "before" && (
+                            <button type="button" onClick={() => { saveRunAccess({ ticketCode: r.code, email: r.email }); navigate("/setor-lari"); }}
+                              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-white transition hover:bg-brand-600">
+                              <IconMedal className="size-5" />{runState === "open" ? "Setor Bukti Lari" : "Hasil & Sertifikat"}
+                            </button>
                           )}
                           <div className="mt-3 flex items-center justify-between border-t border-brand-50 pt-3">
                             <span className="text-sm">
@@ -1731,6 +2270,21 @@
                           </div>
                         </div>
                       </div>
+                      {/* Pembayaran selebar kartu (bukan di kolom sempit) supaya QRIS cukup besar untuk di-scan di HP. */}
+                      {pending && (
+                        <div className="space-y-2 border-t border-brand-50 p-4">
+                          <PaymentInfo reg={r} onClaimed={(at, status) => {
+                            updateRegistrationInCache(r.id, { paymentClaimedAt: at, paymentStatus: status || r.paymentStatus });
+                            setRegs(getRegistrations());
+                          }} />
+                          {!r.paymentClaimedAt && (
+                            <CancelOrderButton code={r.code} email={r.email} onCancelled={() => {
+                              updateRegistrationInCache(r.id, { paymentStatus: "cancelled" });
+                              setRegs(getRegistrations());
+                            }} />
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1914,6 +2468,843 @@
         );
       }
 
+      /* ============================ SETOR BUKTI LARI ============================
+         Peserta lari virtual (tiket Lunas/Gratis) menyetor hasil lari + screenshot,
+         lalu mendapat posisi di papan peringkat dan e-sertifikat. Masuk dengan
+         kode tiket + email (sama seperti cek status); data di yakesma-api /api/runs/*. */
+      const RUN_ACCESS_KEY = "yakesma_run_access_v1";
+      const RUN_APPS = ["Strava", "Adidas Running", "Nike Run Club", "Garmin Connect", "Lainnya"];
+      // Sinkron dengan MIN/MAX_PACE_SECONDS di yakesma-api/src/lib/runs.ts.
+      const RUN_MIN_PACE = 150;
+      const RUN_MAX_PACE = 1200;
+
+      function readRunAccess() { try { return JSON.parse(localStorage.getItem(RUN_ACCESS_KEY) || "null"); } catch (e) { return null; } }
+      function saveRunAccess(v) { try { localStorage.setItem(RUN_ACCESS_KEY, JSON.stringify(v)); } catch (e) {} }
+      function clearRunAccess() { try { localStorage.removeItem(RUN_ACCESS_KEY); } catch (e) {} }
+
+      function todayIsoWIB() { return new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10); }
+      function runSubmissionState(event) {
+        if (!event || !event.runSubmission) return null;
+        const today = todayIsoWIB();
+        const closes = event.submissionEnd || event.dateEnd || event.date;
+        return today < event.date ? "before" : today > closes ? "closed" : "open";
+      }
+      function formatDurasi(sec) {
+        const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+        const mm = String(m).padStart(2, "0"), ss = String(s).padStart(2, "0");
+        return h > 0 ? h + ":" + mm + ":" + ss : m + ":" + ss;
+      }
+      function formatPace(sec) { const s = Math.round(sec); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+      function formatKm(n) { return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(n) + " km"; }
+      function hexToRgba(hex, a) {
+        const h = hex.replace("#", "");
+        const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+        return "rgba(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + "," + a + ")";
+      }
+
+      async function apiRunAccess(ticketCode, email) {
+        try {
+          const res = await fetch(API_BASE + "/api/runs/access", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ticketCode, email }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) return { ok: false, error: body.error || "Gagal membuka data." };
+          return { ok: true, data: body };
+        } catch (e) {
+          return { ok: false, error: "Tidak bisa terhubung ke server. Periksa koneksi internet Anda." };
+        }
+      }
+      async function apiRunSubmit(form) {
+        try {
+          const res = await fetch(API_BASE + "/api/runs/submit", { method: "POST", body: form });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) return { ok: false, error: body.error || "Gagal mengirim bukti lari." };
+          return { ok: true, data: body };
+        } catch (e) {
+          return { ok: false, error: "Tidak bisa terhubung ke server. Periksa koneksi internet Anda." };
+        }
+      }
+      async function apiRunLeaderboard(slug) {
+        try {
+          const res = await fetch(API_BASE + "/api/runs/leaderboard?event=" + encodeURIComponent(slug));
+          if (!res.ok) return null;
+          return await res.json();
+        } catch (e) {
+          return null;
+        }
+      }
+
+      /** Screenshot HP bisa 3-8MB — kecilkan ke maks 1600px JPEG sebelum diunggah (batas server 3MB). */
+      function compressImage(file, maxDim, quality) {
+        return new Promise((resolve, reject) => {
+          const url = URL.createObjectURL(file);
+          const img = new Image();
+          img.onload = () => {
+            URL.revokeObjectURL(url);
+            let { width, height } = img;
+            if (width > maxDim || height > maxDim) {
+              if (width >= height) { height = Math.round(height * (maxDim / width)); width = maxDim; }
+              else { width = Math.round(width * (maxDim / height)); height = maxDim; }
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = width; canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) { reject(new Error("canvas tidak didukung")); return; }
+            ctx.drawImage(img, 0, 0, width, height);
+            canvas.toBlob((blob) => {
+              if (!blob) { reject(new Error("gagal memproses gambar")); return; }
+              resolve(new File([blob], "bukti-lari.jpg", { type: "image/jpeg" }));
+            }, "image/jpeg", quality);
+          };
+          img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("gagal membaca gambar")); };
+          img.src = url;
+        });
+      }
+
+      /* ---------- E-sertifikat (digambar di browser, tanpa server) ---------- */
+      const JSPDF_SRC = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+      function loadJsPdf() {
+        if (window.jspdf) return Promise.resolve(window.jspdf.jsPDF);
+        return new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = JSPDF_SRC; s.async = true;
+          s.onload = () => (window.jspdf ? resolve(window.jspdf.jsPDF) : reject(new Error("jsPDF tidak termuat")));
+          s.onerror = () => reject(new Error("jsPDF gagal dimuat"));
+          document.head.appendChild(s);
+        });
+      }
+      function loadImage(src) {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = src;
+        });
+      }
+      function roundRectPath(ctx, x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      }
+      function fitFont(ctx, text, weight, startSize, minSize, maxWidth, family) {
+        let size = startSize;
+        ctx.font = weight + " " + size + "px " + family;
+        while (ctx.measureText(text).width > maxWidth && size > minSize) {
+          size -= 2;
+          ctx.font = weight + " " + size + "px " + family;
+        }
+      }
+
+      /** Kanvas A4 lanskap (2000×1414). c = {name, eventTitle, periodText, distanceKm, durationSeconds, paceSeconds, runDate, certificateNo}. */
+      async function renderCertificate(c) {
+        const W = 2000, H = 1414;
+        const canvas = document.createElement("canvas");
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext("2d");
+        const F = "'Plus Jakarta Sans', system-ui, sans-serif";
+        try { await Promise.all(["400", "600", "700", "800"].map((w) => document.fonts.load(w + " 40px 'Plus Jakarta Sans'"))); } catch (e) {}
+        const { green, dark, gold } = SITE.colors;
+        const muted = "#5b6b63";
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+        [[0, 0, 760, hexToRgba(green, 0.14)], [W, H, 860, hexToRgba(gold, 0.18)]].forEach(([x, y, r, color]) => {
+          const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+          g.addColorStop(0, color);
+          g.addColorStop(1, "rgba(255,255,255,0)");
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, W, H);
+        });
+        const frame = ctx.createLinearGradient(0, 0, W, H);
+        frame.addColorStop(0, green);
+        frame.addColorStop(1, dark);
+        ctx.strokeStyle = frame; ctx.lineWidth = 18; ctx.strokeRect(40, 40, W - 80, H - 80);
+        ctx.strokeStyle = hexToRgba(gold, 0.9); ctx.lineWidth = 3; ctx.strokeRect(72, 72, W - 144, H - 144);
+
+        const logo = await loadImage(SITE.logo);
+        if (logo) {
+          const lh = 110, lw = logo.width * (lh / logo.height);
+          ctx.drawImage(logo, (W - lw) / 2, 130, lw, lh);
+        }
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = gold;
+        ctx.font = "800 34px " + F;
+        if ("letterSpacing" in ctx) ctx.letterSpacing = "12px";
+        ctx.fillText("E-CERTIFICATE", W / 2, 335);
+        if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+
+        ctx.fillStyle = dark; ctx.font = "800 62px " + F;
+        ctx.fillText("SERTIFIKAT FINISHER", W / 2, 415);
+        ctx.fillStyle = muted; ctx.font = "400 34px " + F;
+        ctx.fillText("Diberikan kepada", W / 2, 500);
+
+        fitFont(ctx, c.name, "800", 104, 48, W - 420, F);
+        ctx.fillStyle = green;
+        ctx.fillText(c.name, W / 2, 628);
+        ctx.strokeStyle = hexToRgba(gold, 0.85); ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(W / 2 - 440, 668); ctx.lineTo(W / 2 + 440, 668); ctx.stroke();
+
+        ctx.fillStyle = muted; ctx.font = "400 34px " + F;
+        ctx.fillText("telah berhasil menyelesaikan", W / 2, 740);
+        fitFont(ctx, c.eventTitle, "800", 60, 36, W - 420, F);
+        ctx.fillStyle = dark;
+        ctx.fillText(c.eventTitle, W / 2, 822);
+        ctx.fillStyle = muted; ctx.font = "600 30px " + F;
+        ctx.fillText(c.periodText, W / 2, 874);
+
+        const stats = [
+          ["JARAK", formatKm(c.distanceKm)],
+          ["WAKTU TEMPUH", formatDurasi(c.durationSeconds)],
+          ["PACE RATA-RATA", formatPace(c.paceSeconds) + " /km"],
+        ];
+        const bw = 440, bh = 172, gap = 44, x0 = (W - (bw * 3 + gap * 2)) / 2, y0 = 944;
+        stats.forEach(([label, value], i) => {
+          const x = x0 + i * (bw + gap);
+          roundRectPath(ctx, x, y0, bw, bh, 28);
+          ctx.fillStyle = hexToRgba(green, 0.08);
+          ctx.fill();
+          ctx.fillStyle = "#6b7a72"; ctx.font = "700 26px " + F;
+          ctx.fillText(label, x + bw / 2, y0 + 62);
+          ctx.fillStyle = dark; ctx.font = "800 58px " + F;
+          ctx.fillText(value, x + bw / 2, y0 + 134);
+        });
+        ctx.fillStyle = muted; ctx.font = "400 28px " + F;
+        ctx.fillText("Tanggal lari: " + formatTanggal(c.runDate), W / 2, 1186);
+
+        ctx.textAlign = "left"; ctx.fillStyle = "#8a968f"; ctx.font = "600 24px " + F;
+        ctx.fillText("No. Sertifikat: " + c.certificateNo, 130, H - 128);
+        ctx.textAlign = "right"; ctx.fillStyle = dark; ctx.font = "800 30px " + F;
+        ctx.fillText(SITE.name, W - 130, H - 152);
+        ctx.fillStyle = "#8a968f"; ctx.font = "600 22px " + F;
+        ctx.fillText(SITE.tagline, W - 130, H - 116);
+        return canvas;
+      }
+      function certFileName(c, ext) {
+        const safe = (s) => s.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "");
+        return "Sertifikat-" + safe(c.eventTitle) + "-" + safe(c.name) + "." + ext;
+      }
+      function triggerDownload(blob, name) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = name;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+      }
+      /* Teks tiap kolom di atas template resmi. Sinkron dengan CERT_FIELDS di yakesma-api/src/lib/validate.ts
+         dan certFieldText di admin/index.html. */
+      function certFieldText(key, c) {
+        if (key === "name") return c.name;
+        if (key === "distance") return formatKm(c.distanceKm);
+        if (key === "duration") return formatDurasi(c.durationSeconds);
+        if (key === "pace") return formatPace(c.paceSeconds) + " /km";
+        if (key === "runDate") return formatTanggal(c.runDate);
+        if (key === "certificateNo") return c.certificateNo;
+        return "";
+      }
+      /** Sertifikat di atas gambar desain resmi dari admin; null kalau template gagal dimuat (pakai desain bawaan). */
+      async function renderTemplateCertificate(templateUrl, layout, c) {
+        const img = await loadImage(templateUrl);
+        if (!img || !layout) return null;
+        const W = img.naturalWidth, H = img.naturalHeight;
+        const canvas = document.createElement("canvas");
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext("2d");
+        try { await Promise.all(["500", "800"].map((w) => document.fonts.load(w + " 40px 'Plus Jakarta Sans'"))); } catch (e) {}
+        ctx.drawImage(img, 0, 0, W, H);
+        ctx.textBaseline = "middle";
+        Object.keys(layout).forEach((key) => {
+          const f = layout[key];
+          if (!f || !f.show) return;
+          const text = (f.label || "") + certFieldText(key, c);
+          if (!text) return;
+          fitFont(ctx, text, f.bold ? "800" : "500", Math.round((f.size / 100) * H), 8, W * 0.92, "'Plus Jakarta Sans', system-ui, sans-serif");
+          ctx.fillStyle = f.color;
+          ctx.textAlign = f.align;
+          ctx.fillText(text, (f.x / 100) * W, (f.y / 100) * H);
+        });
+        return canvas;
+      }
+
+      async function downloadCertificate(c, format) {
+        const canvas = (c.template && (await renderTemplateCertificate(c.template, c.layout, c))) || (await renderCertificate(c));
+        if (format === "png") {
+          const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
+          triggerDownload(blob, certFileName(c, "png"));
+          return;
+        }
+        const JsPDF = await loadJsPdf();
+        const landscape = canvas.width >= canvas.height;
+        const w = landscape ? 297 : 210, h = Math.round((w * canvas.height) / canvas.width);
+        const pdf = new JsPDF({ orientation: landscape ? "landscape" : "portrait", unit: "mm", format: [w, h] });
+        pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, w, h);
+        pdf.save(certFileName(c, "pdf"));
+      }
+
+      /* ---------- Komponen ---------- */
+      const IconMedal = (p) => <SIcon {...p}><circle cx="12" cy="15" r="5.5" /><path d="M8.6 10.6 6 3h4l2.2 5.2M15.4 10.6 18 3h-4l-1.1 2.6" /><path d="m12 12.6.8 1.5 1.6.3-1.2 1.2.3 1.6-1.5-.8-1.5.8.3-1.6-1.2-1.2 1.6-.3Z" /></SIcon>;
+      const IconUpload = (p) => <SIcon {...p}><path d="M12 15.5V4m0 0L7.5 8.5M12 4l4.5 4.5" /><path d="M4 15.5v3A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5v-3" /></SIcon>;
+      const IconDownload = (p) => <SIcon {...p}><path d="M12 4v11.5m0 0L7.5 11M12 15.5l4.5-4.5" /><path d="M4 15.5v3A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5v-3" /></SIcon>;
+
+      /** Kartu di halaman detail event lari virtual yang memakai setor bukti lari. */
+      function RunEventCta({ event }) {
+        const state = runSubmissionState(event);
+        if (!state) return null;
+        const closes = event.submissionEnd || event.dateEnd || event.date;
+        return (
+          <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+            <div className="flex items-start gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand"><IconMedal className="size-6" /></span>
+              <div className="min-w-0">
+                <p className="font-extrabold text-brand-dark">{state === "closed" ? "Hasil Lari & Sertifikat" : "Setor Bukti Lari"}</p>
+                <p className="mt-1 text-sm text-ink/60">
+                  {state === "before"
+                    ? "Setor hasil lari dibuka mulai " + formatTanggalPendek(event.date) + ". Setelah setor, Anda bisa melihat peringkat dan mengunduh e-sertifikat."
+                    : state === "open"
+                      ? "Sudah lari? Setor screenshot hasil lari Anda sampai " + formatTanggalPendek(closes) + ", lalu lihat peringkat dan unduh e-sertifikat."
+                      : "Periode setor sudah berakhir. Peserta yang sudah setor tetap bisa melihat peringkat dan mengunduh e-sertifikat."}
+                </p>
+              </div>
+            </div>
+            {state !== "before" && (
+              <Link to="/setor-lari" className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">
+                <IconMedal className="size-5" />{state === "open" ? "Setor Bukti Lari" : "Lihat Hasil & Sertifikat"}
+              </Link>
+            )}
+          </div>
+        );
+      }
+
+      function RunHero() {
+        const steps = [["1", "Masuk dengan tiket"], ["2", "Unggah bukti lari"], ["3", "Peringkat & sertifikat"]];
+        return (
+          <section className="animate-in relative overflow-hidden rounded-3xl p-6 text-white shadow-lg shadow-brand/15 sm:p-8" style={{ backgroundImage: `linear-gradient(135deg,${SITE.colors.green},${SITE.colors.dark})` }}>
+            <span className="absolute -right-6 -top-6 grid size-32 place-items-center rounded-full bg-white/10"><IconMedal className="size-16 text-white/40" /></span>
+            <h1 className="relative text-2xl font-extrabold sm:text-3xl">Setor Bukti Lari</h1>
+            <p className="relative mt-1.5 max-w-md text-sm text-white/85">Setor hasil lari virtual Anda, lihat posisi di papan peringkat, dan unduh e-sertifikat finisher.</p>
+            <div className="relative mt-5 grid grid-cols-3 gap-2">
+              {steps.map(([n, label]) => (
+                <div key={n} className="rounded-xl px-2.5 py-2.5 backdrop-blur" style={{ backgroundColor: "rgba(255,255,255,0.12)" }}>
+                  <span className="grid size-6 place-items-center rounded-full bg-white text-xs font-extrabold text-brand-dark">{n}</span>
+                  <p className="mt-1.5 text-[12px] font-semibold leading-tight">{label}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        );
+      }
+
+      function RunAccessForm({ initialCode, initialEmail, error, loading, onOpen }) {
+        const [code, setCode] = useState(initialCode || "");
+        const [email, setEmail] = useState(initialEmail || "");
+        const deviceTickets = getRegistrations().filter((r) => {
+          const ev = getEvent(r.slug);
+          return ev && ev.runSubmission && r.code && r.email && r.paymentStatus !== "cancelled";
+        });
+        function submit(e) {
+          e.preventDefault();
+          if (!code.trim() || !email.trim()) return;
+          onOpen(code, email);
+        }
+        return (
+          <div className="space-y-4">
+            {deviceTickets.length > 0 && (
+              <section className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+                <h2 className="font-extrabold text-brand-dark">Tiket di perangkat ini</h2>
+                <p className="mt-0.5 text-sm text-ink/55">Pilih tiket lari virtual Anda untuk langsung masuk.</p>
+                <div className="mt-3 space-y-2">
+                  {deviceTickets.map((r) => (
+                    <button key={r.id} type="button" disabled={loading} onClick={() => onOpen(r.code, r.email)}
+                      className="flex w-full items-center gap-3 rounded-xl border border-brand-100 px-3.5 py-3 text-left transition hover:border-brand hover:bg-brand-50 disabled:opacity-60">
+                      <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand"><IconTicket className="size-5" /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold text-brand-dark">{r.title}</span>
+                        <span className="block font-mono text-xs text-ink/55">{r.code}</span>
+                      </span>
+                      <IconChevronRight className="size-5 text-brand" />
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+            <section className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+              <h2 className="font-extrabold text-brand-dark">{deviceTickets.length ? "Atau masuk dengan kode tiket" : "Masuk dengan kode tiket"}</h2>
+              <p className="mt-0.5 text-sm text-ink/55">Kode tiket ada di halaman tiket dan pesan WhatsApp setelah Anda mendaftar.</p>
+              <form onSubmit={submit} className="mt-4 space-y-3">
+                <Field label="Kode Tiket" value={code} onChange={(v) => setCode(v.toUpperCase())} placeholder="YKS-XXXXXX" maxLength={20} />
+                <Field label="Email saat mendaftar" type="email" value={email} onChange={setEmail} placeholder="nama@email.com" />
+                {error && <p className="rounded-lg bg-orange/10 px-3 py-2 text-sm font-medium text-orange">{error}</p>}
+                <button type="submit" disabled={loading || !code.trim() || !email.trim()}
+                  className="flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60">
+                  {loading ? "Memeriksa…" : "Buka Dashboard Lari"}
+                </button>
+              </form>
+            </section>
+          </div>
+        );
+      }
+
+      function RunStat({ label, value }) {
+        return (
+          <div className="rounded-xl bg-brand-50/70 px-2 py-3 text-center">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-ink/50">{label}</p>
+            <p className="mt-1 text-lg font-extrabold text-brand-dark">{value}</p>
+          </div>
+        );
+      }
+
+      function RunSubmitForm({ slot, submission, access, creds, onSaved, onCancel }) {
+        const ev = access.event, win = access.window;
+        const d = submission ? submission.durationSeconds : 0;
+        const [name, setName] = useState(submission ? submission.participantName : slot === 1 ? access.registration.name : "");
+        const [app, setApp] = useState((submission && submission.appName) || "Strava");
+        const [runDate, setRunDate] = useState(submission ? submission.runDate : win.runDateMax);
+        const [km, setKm] = useState(submission ? String(submission.distanceKm).replace(".", ",") : "");
+        const [hh, setHh] = useState(submission ? String(Math.floor(d / 3600)) : "");
+        const [mm, setMm] = useState(submission ? String(Math.floor((d % 3600) / 60)) : "");
+        const [ss, setSs] = useState(submission ? String(d % 60) : "");
+        const [file, setFile] = useState(null);
+        const [preview, setPreview] = useState("");
+        const [agree, setAgree] = useState(false);
+        const [busy, setBusy] = useState(false);
+        const [preparing, setPreparing] = useState(false);
+        const [error, setError] = useState("");
+
+        const kmNum = parseFloat(String(km).replace(",", "."));
+        const toInt = (v) => parseInt(v || "0", 10) || 0;
+        const secs = toInt(hh) * 3600 + toInt(mm) * 60 + toInt(ss);
+        const pace = kmNum > 0 && secs > 0 ? secs / kmNum : 0;
+        const paceOk = pace >= RUN_MIN_PACE && pace <= RUN_MAX_PACE;
+
+        async function onFile(e) {
+          const f = e.target.files && e.target.files[0];
+          e.target.value = "";
+          if (!f) return;
+          if (!/^image\//.test(f.type)) { setError("File harus berupa gambar (screenshot)."); return; }
+          setError(""); setPreparing(true);
+          let out = f;
+          try { out = await compressImage(f, 1600, 0.85); } catch (err) {}
+          setPreparing(false);
+          if (out.size > 3 * 1024 * 1024) { setError("Ukuran gambar terlalu besar (maks 3MB)."); return; }
+          if (preview) URL.revokeObjectURL(preview);
+          setFile(out);
+          setPreview(URL.createObjectURL(out));
+        }
+
+        async function submit(e) {
+          e.preventDefault();
+          setError("");
+          if (name.trim().length < 2) return setError("Isi nama peserta — nama ini tercetak di sertifikat.");
+          if (!runDate) return setError("Pilih tanggal lari.");
+          if (!(kmNum >= ev.runMinKm)) return setError("Jarak minimal " + ev.runMinKm + " km dalam satu kali lari.");
+          if (secs <= 0) return setError("Isi waktu tempuh sesuai aplikasi lari.");
+          if (!paceOk) return setError("Pace " + formatPace(pace) + "/km di luar batas wajar (" + formatPace(RUN_MIN_PACE) + "–" + formatPace(RUN_MAX_PACE) + "/km). Periksa jarak dan waktu tempuh.");
+          if (!file) return setError("Unggah screenshot hasil lari dari aplikasi Anda.");
+          if (!agree) return setError("Centang pernyataan kebenaran data terlebih dahulu.");
+          const fd = new FormData();
+          fd.append("ticketCode", creds.ticketCode);
+          fd.append("email", creds.email);
+          fd.append("participantNo", String(slot));
+          fd.append("participantName", name.trim());
+          fd.append("appName", app);
+          fd.append("runDate", runDate);
+          fd.append("distanceKm", String(kmNum));
+          fd.append("durationSeconds", String(secs));
+          fd.append("file", file);
+          setBusy(true);
+          const res = await apiRunSubmit(fd);
+          setBusy(false);
+          if (!res.ok) return setError(res.error);
+          onSaved(res.data);
+        }
+
+        const timeInput = "w-full rounded-xl border border-brand-100 bg-white px-2 py-2.5 text-center text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20";
+        return (
+          <form onSubmit={submit} className="space-y-4">
+            <div className="rounded-xl border border-gold/40 bg-gold/10 p-3.5 text-sm">
+              <p className="font-bold text-brand-dark">Syarat bukti lari</p>
+              <ul className="mt-1.5 space-y-1 text-ink/70">
+                <li>✓ Satu kali lari (single run) minimal <b>{ev.runMinKm} km</b></li>
+                <li>✓ Dilakukan pada {formatTanggalRange(ev.date, ev.dateEnd)}</li>
+                <li>✓ Screenshot memperlihatkan <b>jarak, waktu tempuh, dan tanggal</b></li>
+                <li>✓ Data yang diisi sama dengan screenshot</li>
+              </ul>
+            </div>
+
+            <Field label={"Nama di sertifikat" + (access.registration.quantity > 1 ? " (peserta " + slot + ")" : "")} value={name} onChange={setName} placeholder="Nama lengkap peserta" maxLength={100} />
+
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Aplikasi yang dipakai</label>
+              <div className="flex flex-wrap gap-2">
+                {RUN_APPS.map((a) => (
+                  <button key={a} type="button" onClick={() => setApp(a)}
+                    className={"rounded-full border px-3.5 py-1.5 text-sm font-semibold transition " + (app === a ? "border-brand bg-brand text-white" : "border-brand-100 bg-white text-brand-dark hover:border-brand")}>{a}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Tanggal lari</label>
+                <input type="date" value={runDate} min={win.runDateMin} max={win.runDateMax} onChange={(e) => setRunDate(e.target.value)}
+                  className="w-full rounded-xl border border-brand-100 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20" />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Jarak (km)</label>
+                <input value={km} onChange={(e) => setKm(e.target.value.replace(/[^0-9.,]/g, "").slice(0, 6))} inputMode="decimal" placeholder={"mis. " + String(ev.runMinKm).replace(".", ",") + ",02"}
+                  className="w-full rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20" />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Waktu tempuh</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[["Jam", hh, setHh], ["Menit", mm, setMm], ["Detik", ss, setSs]].map(([lbl, val, set]) => (
+                  <div key={lbl}>
+                    <input value={val} onChange={(e) => set(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" placeholder="0" className={timeInput} />
+                    <p className="mt-1 text-center text-[11px] text-ink/45">{lbl}</p>
+                  </div>
+                ))}
+              </div>
+              {pace > 0 && (
+                <p className={"mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold " + (paceOk ? "bg-brand-50 text-brand-700" : "bg-orange/10 text-orange")}>
+                  Pace rata-rata {formatPace(pace)} /km{paceOk ? "" : " — periksa kembali"}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Screenshot hasil lari</label>
+              <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-brand-200 bg-brand-50/40 px-4 py-5 text-center transition hover:border-brand hover:bg-brand-50">
+                {preview ? (
+                  <img src={preview} alt="Pratinjau screenshot" className="max-h-64 rounded-lg object-contain shadow-sm" />
+                ) : (
+                  <React.Fragment>
+                    <span className="grid size-11 place-items-center rounded-full bg-white text-brand shadow-sm"><IconUpload className="size-5" /></span>
+                    <span className="text-sm font-semibold text-brand-dark">{preparing ? "Memproses gambar…" : "Pilih screenshot dari galeri"}</span>
+                    <span className="text-xs text-ink/50">JPG/PNG, dari {app === "Lainnya" ? "aplikasi lari Anda" : app}</span>
+                  </React.Fragment>
+                )}
+                <input type="file" accept="image/*" className="hidden" onChange={onFile} disabled={busy || preparing} />
+              </label>
+              {preview && <p className="mt-1.5 text-center text-xs text-ink/50">Ketuk gambar untuk mengganti</p>}
+              {submission && !preview && <p className="mt-1.5 text-xs text-ink/50">Mengubah hasil lari wajib menyertakan screenshot baru.</p>}
+            </div>
+
+            <label className="flex items-start gap-2.5 text-sm text-ink/70">
+              <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 size-4 shrink-0 accent-[#28a840]" />
+              <span>Saya menyatakan data ini benar dan merupakan hasil lari saya sendiri. Panitia berhak membatalkan hasil yang tidak sesuai.</span>
+            </label>
+
+            {error && <p className="rounded-lg bg-orange/10 px-3 py-2 text-sm font-medium text-orange">{error}</p>}
+
+            <div className="flex gap-2">
+              <button type="submit" disabled={busy || preparing}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60">
+                {busy ? "Mengirim…" : <React.Fragment><IconUpload className="size-5" />Kirim Bukti Lari</React.Fragment>}
+              </button>
+              {onCancel && (
+                <button type="button" onClick={onCancel} disabled={busy} className="rounded-xl border border-brand-100 px-4 py-3 text-sm font-semibold text-ink/60 hover:bg-brand-50">Batal</button>
+              )}
+            </div>
+          </form>
+        );
+      }
+
+      function ParticipantRun({ slot, submission, access, creds, onUpdated, autoOpen }) {
+        const win = access.window;
+        const [editing, setEditing] = useState(!submission && win.open && autoOpen);
+        const [justSaved, setJustSaved] = useState(false);
+        const [certBusy, setCertBusy] = useState("");
+        const [certError, setCertError] = useState("");
+        const multi = access.registration.quantity > 1;
+        const accepted = submission && submission.status === "accepted";
+        const rejected = submission && submission.status === "rejected";
+
+        function handleSaved(data) {
+          setEditing(false);
+          setJustSaved(true);
+          onUpdated(data);
+        }
+        async function cert(format) {
+          setCertBusy(format); setCertError("");
+          try {
+            await downloadCertificate({
+              name: submission.participantName,
+              eventTitle: access.event.title,
+              periodText: "Lari Virtual · " + formatTanggalRange(access.event.date, access.event.dateEnd),
+              distanceKm: submission.distanceKm,
+              durationSeconds: submission.durationSeconds,
+              paceSeconds: submission.paceSeconds,
+              runDate: submission.runDate,
+              certificateNo: submission.certificateNo,
+              template: (getEvent(access.event.slug) || {}).certificateTemplate || "",
+              layout: (getEvent(access.event.slug) || {}).certificateLayout || null,
+            }, format);
+          } catch (e) {
+            setCertError("Gagal membuat sertifikat. Coba lagi atau gunakan browser lain.");
+          }
+          setCertBusy("");
+        }
+
+        return (
+          <section className="animate-in overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm">
+            <div className="flex items-center justify-between gap-3 border-b border-brand-50 px-5 py-3.5">
+              <div className="min-w-0">
+                {multi && <p className="text-[11px] font-bold uppercase tracking-wide text-ink/45">Peserta {slot}</p>}
+                <p className="truncate font-extrabold text-brand-dark">{submission ? submission.participantName : multi ? "Belum ada hasil" : access.registration.name}</p>
+              </div>
+              {accepted ? <span className="shrink-0 rounded-full bg-brand px-2.5 py-1 text-[11px] font-bold text-white">Finisher</span>
+                : rejected ? <span className="shrink-0 rounded-full bg-orange/15 px-2.5 py-1 text-[11px] font-bold text-orange">Ditolak</span>
+                : <span className="shrink-0 rounded-full bg-ink/10 px-2.5 py-1 text-[11px] font-bold text-ink/50">Belum setor</span>}
+            </div>
+
+            <div className="space-y-4 p-5">
+              {justSaved && accepted && (
+                <div className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-dark">
+                  <b>Bukti lari tersimpan! 🎉</b> Anda berada di peringkat <b>#{submission.rank}</b> dari {access.totalFinishers} finisher.
+                </div>
+              )}
+
+              {editing ? (
+                <RunSubmitForm slot={slot} submission={submission} access={access} creds={creds} onSaved={handleSaved}
+                  onCancel={submission ? () => setEditing(false) : null} />
+              ) : submission ? (
+                <React.Fragment>
+                  {accepted && submission.rank && (
+                    <div className="flex items-center gap-4 rounded-2xl p-4 text-white" style={{ backgroundImage: `linear-gradient(135deg,${SITE.colors.green},${SITE.colors.dark})` }}>
+                      <div className="text-center">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-white/75">Peringkat</p>
+                        <p className="text-4xl font-extrabold leading-none">#{submission.rank}</p>
+                      </div>
+                      <p className="text-sm text-white/85">dari <b className="text-white">{access.totalFinishers}</b> finisher, berdasarkan pace rata-rata tercepat</p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-3 gap-2">
+                    <RunStat label="Jarak" value={formatKm(submission.distanceKm)} />
+                    <RunStat label="Waktu" value={formatDurasi(submission.durationSeconds)} />
+                    <RunStat label="Pace" value={formatPace(submission.paceSeconds)} />
+                  </div>
+                  <div className="flex items-center gap-3 text-sm text-ink/60">
+                    {submission.proofUrl && (
+                      <a href={submission.proofUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                        <img src={submission.proofUrl} alt="Bukti lari" className="size-14 rounded-lg border border-brand-100 object-cover" />
+                      </a>
+                    )}
+                    <div className="min-w-0">
+                      <p className="flex items-center gap-1.5"><IconCalendar className="size-4 text-brand" />{formatTanggal(submission.runDate)}</p>
+                      {submission.appName && <p className="mt-0.5 text-xs text-ink/50">via {submission.appName}</p>}
+                    </div>
+                  </div>
+
+                  {rejected && (
+                    <div className="rounded-xl border border-orange/30 bg-orange/5 p-3.5 text-sm">
+                      <p className="font-bold text-orange">Hasil lari ditolak panitia</p>
+                      <p className="mt-1 text-ink/70">{submission.rejectReason}</p>
+                      <p className="mt-1.5 text-xs text-ink/50">{win.open ? "Silakan setor ulang dengan data dan screenshot yang benar." : "Periode setor sudah berakhir. Hubungi panitia lewat WhatsApp bila ada pertanyaan."}</p>
+                    </div>
+                  )}
+
+                  {accepted && submission.customCertificateUrl && (
+                    <a href={submission.customCertificateUrl} target="_blank" rel="noopener noreferrer"
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-600">
+                      <IconDownload className="size-5" />Unduh Sertifikat (PDF)
+                    </a>
+                  )}
+                  {accepted && !submission.customCertificateUrl && (
+                    <div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" onClick={() => cert("pdf")} disabled={!!certBusy}
+                          className="flex items-center justify-center gap-2 rounded-xl bg-brand px-3 py-3 text-sm font-bold text-white transition hover:bg-brand-600 disabled:opacity-60">
+                          <IconDownload className="size-5" />{certBusy === "pdf" ? "Menyiapkan…" : "Sertifikat PDF"}
+                        </button>
+                        <button type="button" onClick={() => cert("png")} disabled={!!certBusy}
+                          className="flex items-center justify-center gap-2 rounded-xl border border-brand px-3 py-3 text-sm font-bold text-brand transition hover:bg-brand-50 disabled:opacity-60">
+                          <IconDownload className="size-5" />{certBusy === "png" ? "Menyiapkan…" : "Gambar PNG"}
+                        </button>
+                      </div>
+                      {certError && <p className="mt-2 text-sm text-orange">{certError}</p>}
+                    </div>
+                  )}
+
+                  {win.open && (
+                    <button type="button" onClick={() => { setEditing(true); setJustSaved(false); }}
+                      className={rejected
+                        ? "flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600"
+                        : "w-full text-center text-sm font-semibold text-ink/50 hover:text-brand-dark"}>
+                      {rejected ? "Setor Ulang Bukti Lari" : "Ubah hasil lari"}
+                    </button>
+                  )}
+                </React.Fragment>
+              ) : win.state === "before" ? (
+                <p className="text-sm text-ink/60">Setor bukti lari dibuka mulai <b>{formatTanggalPendek(win.opensOn)}</b>.</p>
+              ) : win.state === "closed" ? (
+                <p className="text-sm text-ink/60">Periode setor bukti lari sudah berakhir pada {formatTanggalPendek(win.closesOn)}.</p>
+              ) : (
+                <button type="button" onClick={() => setEditing(true)} className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">
+                  <IconUpload className="size-5" />Setor Bukti Lari
+                </button>
+              )}
+            </div>
+          </section>
+        );
+      }
+
+      function RunLeaderboard({ board, myEntries }) {
+        const [showAll, setShowAll] = useState(false);
+        if (!board) return <p className="py-6 text-center text-sm text-ink/40">Memuat peringkat…</p>;
+        const rows = showAll ? board.entries : board.entries.slice(0, 20);
+        const myRanks = new Set(myEntries.map((m) => m.rank));
+        const outside = myEntries.filter((m) => m.rank > rows.length);
+        const medal = { 1: "🥇", 2: "🥈", 3: "🥉" };
+        const Row = ({ r, mine, name }) => (
+          <li className={"flex items-center gap-3 px-4 py-3 " + (mine ? "bg-brand-50" : "")}>
+            <span className="grid w-9 shrink-0 place-items-center text-center font-extrabold text-brand-dark">{medal[r.rank] ? <span className="text-xl">{medal[r.rank]}</span> : "#" + r.rank}</span>
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-1.5 truncate font-bold text-brand-dark">{name || r.name}{mine && <span className="shrink-0 rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">Anda</span>}</p>
+              <p className="text-xs text-ink/50">{formatKm(r.distanceKm)} · {formatDurasi(r.durationSeconds)}</p>
+            </div>
+            <span className="shrink-0 text-right">
+              <span className="block font-extrabold text-brand-dark">{formatPace(r.paceSeconds)}</span>
+              <span className="block text-[10px] text-ink/45">/km</span>
+            </span>
+          </li>
+        );
+        return (
+          <section className="overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-sm">
+            <div className="p-5 pb-3">
+              <h2 className="text-lg font-extrabold text-brand-dark">Papan Peringkat</h2>
+              <p className="text-sm text-ink/55">Diurutkan berdasarkan pace rata-rata tercepat.</p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <RunStat label="Finisher" value={board.stats.finishers.toLocaleString("id-ID")} />
+                <RunStat label="Total jarak" value={formatKm(board.stats.totalKm)} />
+              </div>
+            </div>
+            {board.entries.length === 0 ? (
+              <p className="px-5 pb-5 text-sm text-ink/50">Belum ada peserta yang menyetor bukti lari.</p>
+            ) : (
+              <React.Fragment>
+                <ul className="divide-y divide-brand-50 border-t border-brand-50">
+                  {rows.map((r) => <Row key={r.rank} r={r} mine={myRanks.has(r.rank)} />)}
+                  {outside.map((m) => <Row key={"me" + m.rank} r={m} mine name={m.name} />)}
+                </ul>
+                {board.entries.length > 20 && (
+                  <button type="button" onClick={() => setShowAll(!showAll)} className="w-full border-t border-brand-50 py-3 text-sm font-semibold text-brand hover:bg-brand-50">
+                    {showAll ? "Tampilkan lebih sedikit" : "Lihat " + board.entries.length + " teratas"}
+                  </button>
+                )}
+              </React.Fragment>
+            )}
+          </section>
+        );
+      }
+
+      function RunDashboard({ access, creds, onUpdated, onLogout }) {
+        const { registration, event } = access;
+        const win = access.window;
+        const [board, setBoard] = useState(null);
+        const [boardKey, setBoardKey] = useState(0);
+        useEffect(() => { apiRunLeaderboard(event.slug).then(setBoard); }, [event.slug, boardKey]);
+
+        const bySlot = {};
+        access.submissions.forEach((s) => { bySlot[s.participantNo] = s; });
+        const slots = Array.from({ length: registration.quantity }, (_, i) => i + 1);
+        const firstEmptySlot = slots.find((n) => !bySlot[n]);
+        const myEntries = access.submissions.filter((s) => s.status === "accepted" && s.rank).map((s) => ({
+          rank: s.rank, name: s.participantName, distanceKm: s.distanceKm, durationSeconds: s.durationSeconds, paceSeconds: s.paceSeconds,
+        }));
+
+        function handleUpdated(data) {
+          onUpdated(data);
+          setBoardKey((k) => k + 1);
+        }
+
+        const banner = win.state === "open"
+          ? { cls: "bg-brand-50 text-brand-dark", text: "Periode setor dibuka sampai " + formatTanggalPendek(win.closesOn) + ". Hasil bisa diubah selama periode masih berlangsung." }
+          : win.state === "before"
+            ? { cls: "bg-gold/15 text-brand-dark", text: "Setor bukti lari dibuka mulai " + formatTanggalPendek(win.opensOn) + "." }
+            : { cls: "bg-ink/5 text-ink/60", text: "Periode setor berakhir pada " + formatTanggalPendek(win.closesOn) + ". Sertifikat tetap bisa diunduh." };
+
+        return (
+          <div className="space-y-4">
+            <section className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-ink/45">Lari Virtual</p>
+                  <h2 className="mt-0.5 text-lg font-extrabold leading-tight text-brand-dark">{event.title}</h2>
+                  <p className="mt-1 text-sm text-ink/60">{formatTanggalRange(event.date, event.dateEnd)} · min. {event.runMinKm} km</p>
+                  <p className="mt-1 text-xs text-ink/50">Tiket <span className="font-mono font-bold text-brand-dark">{registration.ticketCode}</span> · a.n. {registration.name}</p>
+                </div>
+                <button type="button" onClick={onLogout} className="shrink-0 text-sm font-semibold text-ink/45 hover:text-orange">Ganti tiket</button>
+              </div>
+              <p className={"mt-4 rounded-xl px-3.5 py-2.5 text-sm " + banner.cls}>{banner.text}</p>
+            </section>
+
+            {slots.map((n) => (
+              <ParticipantRun key={n} slot={n} submission={bySlot[n]} access={access} creds={creds} onUpdated={handleUpdated} autoOpen={n === firstEmptySlot} />
+            ))}
+
+            {myEntries.length > 0 ? (
+              <RunLeaderboard board={board} myEntries={myEntries} />
+            ) : (
+              <section className="rounded-2xl border border-dashed border-brand-200 bg-white/70 p-6 text-center">
+                <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-brand-50 text-brand"><IconMedal className="size-6" /></span>
+                <p className="mt-3 font-extrabold text-brand-dark">Papan Peringkat</p>
+                <p className="mx-auto mt-1 max-w-xs text-sm text-ink/60">
+                  {board && board.stats.finishers > 0
+                    ? board.stats.finishers.toLocaleString("id-ID") + " peserta sudah finish. Setor bukti lari Anda untuk melihat posisi Anda di papan peringkat."
+                    : "Papan peringkat terbuka setelah Anda menyetor bukti lari."}
+                </p>
+              </section>
+            )}
+          </div>
+        );
+      }
+
+      function SetorLari() {
+        const saved = readRunAccess();
+        const [access, setAccess] = useState(null);
+        const [creds, setCreds] = useState(null);
+        const [booting, setBooting] = useState(!!(saved && saved.ticketCode && saved.email));
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState("");
+
+        async function open(ticketCode, email) {
+          const c = { ticketCode: ticketCode.trim().toUpperCase(), email: email.trim().toLowerCase() };
+          setLoading(true); setError("");
+          const res = await apiRunAccess(c.ticketCode, c.email);
+          setLoading(false); setBooting(false);
+          if (!res.ok) { setError(res.error); clearRunAccess(); return; }
+          saveRunAccess(c);
+          setCreds(c);
+          setAccess(res.data);
+          window.scrollTo(0, 0);
+        }
+        useEffect(() => {
+          if (saved && saved.ticketCode && saved.email) open(saved.ticketCode, saved.email);
+        }, []);
+        function logout() { clearRunAccess(); setAccess(null); setCreds(null); setError(""); }
+
+        return (
+          <Container className="space-y-5">
+            <RunHero />
+            {booting ? (
+              <p className="py-10 text-center text-sm text-ink/40">Memuat…</p>
+            ) : access ? (
+              <RunDashboard access={access} creds={creds} onUpdated={setAccess} onLogout={logout} />
+            ) : (
+              <RunAccessForm initialCode={saved ? saved.ticketCode : ""} initialEmail={saved ? saved.email : ""} error={error} loading={loading} onOpen={open} />
+            )}
+          </Container>
+        );
+      }
+
       function NotFound() {
         return (
           <Container className="py-20 text-center">
@@ -1921,6 +3312,113 @@
             <h1 className="mt-4 text-2xl font-extrabold text-brand-dark">Halaman tidak ditemukan</h1>
             <p className="mx-auto mt-2 max-w-sm text-ink/60">Maaf, halaman yang Anda cari tidak tersedia atau telah dipindahkan.</p>
             <Link to="/" className="mt-6 inline-flex rounded-full bg-brand px-6 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Kembali ke Beranda</Link>
+          </Container>
+        );
+      }
+
+      /* ============ HALAMAN BAYAR (#/bayar/<kode>?t=<token>) — dibuka dari email & WhatsApp ============ */
+      function BayarPage({ code, token }) {
+        const local = getRegistrations().find((r) => r.code === code);
+        const [email, setEmail] = useState(local ? local.email : "");
+        const [proof, setProof] = useState(token ? { token: token } : local ? { email: local.email } : null);
+        const [data, setData] = useState(null);
+        const [loading, setLoading] = useState(!!proof);
+        const [error, setError] = useState("");
+
+        useEffect(() => {
+          if (!proof) return;
+          let alive = true;
+          setLoading(true); setError("");
+          const req = proof.token ? apiLookupByToken(code, proof.token) : apiLookupStatus(code, proof.email);
+          req.then((res) => {
+            if (!alive) return;
+            setLoading(false);
+            if (!res.ok) { setData(null); setError(res.error || "Pendaftaran tidak ditemukan. Periksa kode tiket dan email Anda."); return; }
+            setData(res.data);
+            if (local) {
+              const patch = serverPatch(local, res.data);
+              if (patch) updateRegistrationInCache(local.id, patch);
+            }
+          });
+          return () => { alive = false; };
+        }, [code, proof && (proof.token || proof.email)]);
+
+        function cariDenganEmail(e) {
+          e.preventDefault();
+          const v = email.trim().toLowerCase();
+          if (!v) { setError("Masukkan email yang dipakai saat mendaftar."); return; }
+          setProof({ email: v });
+        }
+
+        const reg = data ? {
+          code: data.ticketCode || code, total: data.totalAmount, email: proof && proof.email,
+          createdAt: data.createdAt, uniqueCode: data.uniqueCode, paymentClaimedAt: data.paymentClaimedAt,
+        } : null;
+
+        return (
+          <Container>
+           <div className="mx-auto max-w-xl space-y-5">
+            <header>
+              <h1 className="text-2xl font-extrabold text-brand-dark sm:text-3xl">Pembayaran</h1>
+              <p className="mt-1 text-sm text-ink/60">Kode tiket <span className="font-mono font-bold text-brand-dark">{code}</span></p>
+            </header>
+
+            {!proof && (
+              <form onSubmit={cariDenganEmail} className="space-y-3 rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+                <p className="text-sm text-ink/70">Masukkan email yang Anda pakai saat mendaftar untuk menampilkan pembayaran.</p>
+                <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="nama@email.com" />
+                {error && <p className="text-xs font-medium text-orange">{error}</p>}
+                <button type="submit" className="w-full rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white hover:bg-brand-600">Tampilkan Pembayaran</button>
+              </form>
+            )}
+
+            {proof && loading && <p className="text-sm text-ink/60">Memuat data pembayaran…</p>}
+
+            {proof && !loading && error && (
+              <div className="space-y-3 rounded-2xl border border-orange/30 bg-orange/5 p-5 text-sm">
+                <p className="font-semibold text-brand-dark">{error}</p>
+                <button type="button" onClick={() => { setProof(null); setError(""); }} className="font-semibold text-brand hover:underline">Coba dengan email</button>
+              </div>
+            )}
+
+            {data && !loading && (
+              <div className="space-y-4 rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="font-bold text-brand-dark">{data.eventTitle}</h2>
+                    {data.packageName && <p className="text-xs font-semibold text-brand-700">{data.packageName}</p>}
+                    {data.name && <p className="mt-0.5 text-xs text-ink/55">a.n. {data.name} · {data.quantity} peserta</p>}
+                  </div>
+                  <StatusBadge status={data.paymentStatus} claimed={!!data.paymentClaimedAt} />
+                </div>
+
+                {data.paymentStatus === "pending_transfer" && (
+                  <PaymentInfo reg={reg} proof={proof} onClaimed={(at, status) => {
+                    setData((d) => Object.assign({}, d, { paymentClaimedAt: at, paymentStatus: status || d.paymentStatus }));
+                    if (local) updateRegistrationInCache(local.id, { paymentClaimedAt: at, paymentStatus: status || local.paymentStatus });
+                  }} />
+                )}
+                {(data.paymentStatus === "paid" || data.paymentStatus === "free") && (
+                  <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-sm">
+                    <p className="font-bold text-brand-dark">✓ {data.paymentStatus === "paid" ? "Pembayaran sudah dikonfirmasi" : "Pendaftaran gratis — tidak perlu membayar"}</p>
+                    <p className="mt-1 text-ink/70">Anda resmi terdaftar. Jazakallahu khairan!</p>
+                  </div>
+                )}
+                {data.paymentStatus === "cancelled" && (
+                  <div className="rounded-xl border border-orange/30 bg-orange/5 p-4 text-sm">
+                    <p className="font-bold text-brand-dark">Pesanan ini sudah dibatalkan</p>
+                    <p className="mt-1 text-ink/70">
+                      {data.cancelReason === "expired" ? "Dibatalkan otomatis karena belum dibayar dalam 24 jam. " : ""}
+                      Sudah membayar?{" "}
+                      <a href={"https://wa.me/" + SITE.whatsapp + "?text=" + encodeURIComponent("Halo YAKESMA, pesanan saya dibatalkan padahal sudah bayar.\nKode tiket: " + code)}
+                        target="_blank" rel="noopener noreferrer" className="font-semibold text-brand hover:underline">Hubungi CS</a>. Anda juga bisa mendaftar ulang.
+                    </p>
+                  </div>
+                )}
+                <Link to="/event-saya" className="flex w-full items-center justify-center rounded-xl border border-brand-100 px-4 py-3 text-sm font-semibold text-brand-dark transition hover:bg-brand-50">Event Saya</Link>
+              </div>
+            )}
+           </div>
           </Container>
         );
       }
@@ -1933,9 +3431,11 @@
         let page, title;
         if (route.path === "/") { page = <Home />; title = null; }
         else if (route.path === "/event") { page = <EventList kategori={route.params.get("kategori")} />; title = "Event"; }
-        else if (seg[0] === "event" && seg[1]) { const ev = getEvent(seg[1]); page = <EventDetail slug={seg[1]} />; title = ev ? ev.title : "Event tidak ditemukan"; }
+        else if (seg[0] === "event" && seg[1]) { const ev = getEvent(seg[1]); page = <EventDetail slug={seg[1]} paket={route.params.get("paket")} />; title = ev ? ev.title : "Event tidak ditemukan"; }
         else if (route.path === "/event-saya") { page = <EventSaya />; title = "Event Saya"; }
         else if (route.path === "/akun") { page = <Akun />; title = "Akun"; }
+        else if (route.path === "/setor-lari") { page = <SetorLari />; title = "Setor Lari"; }
+        else if (seg[0] === "bayar" && seg[1]) { page = <BayarPage code={decodeURIComponent(seg[1]).toUpperCase()} token={route.params.get("t")} />; title = "Pembayaran"; }
         else { page = <NotFound />; title = "Halaman tidak ditemukan"; }
 
         useEffect(() => {
@@ -1952,6 +3452,56 @@
       }
 
       /* Terapkan warna brand dari data ke Tailwind (Play CDN) sebelum render */
+      /* ============================ META PIXEL / CAPI ============================
+         Dua sinyal terpisah untuk satu konversi: Pixel (browser, di sini) dan
+         CAPI (server, lib/metaCapi.ts di yakesma-api) — keduanya dikirim
+         dengan event_id yang SAMA supaya Meta deduplikasi jadi satu, bukan
+         dihitung dobel. Sengaja BUKAN pakai "one-click setup" Meta (April
+         2026) -- itu cuma menduplikasi event Pixel di infrastruktur Meta
+         sendiri, bukan sinyal server yang independen. */
+      function metaEventId() {
+        try { return crypto.randomUUID(); } catch (e) { return "ev_" + Date.now() + "_" + Math.random().toString(36).slice(2); }
+      }
+      function readCookie(name) {
+        const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+        return m ? decodeURIComponent(m[1]) : "";
+      }
+      /** Situs memakai hash routing, jadi fbclid dari klik iklan bisa tersisip SETELAH "#"
+       * (…/#/event/x?fbclid=…) — di situ Pixel tidak membacanya dan cookie _fbc tak terbentuk.
+       * Bentuk sendiri dengan format resmi Meta: fb.1.<waktu ms>.<fbclid>. */
+      function captureFbclidFromHash() {
+        try {
+          if (/[?&]fbclid=/.test(location.search)) return;
+          const m = location.hash.match(/[?&]fbclid=([^&#]+)/);
+          if (!m) return;
+          const fbclid = decodeURIComponent(m[1]);
+          if (readCookie("_fbc").endsWith("." + fbclid)) return;
+          const value = "fb.1." + Date.now() + "." + fbclid;
+          const base = "_fbc=" + encodeURIComponent(value) + "; path=/; max-age=" + 90 * 24 * 3600 + "; SameSite=Lax";
+          const parts = location.hostname.split(".");
+          if (parts.length > 2) document.cookie = base + "; domain=." + parts.slice(-2).join(".");
+          if (readCookie("_fbc") !== value) document.cookie = base;
+        } catch (e) {}
+      }
+
+      let _pixelReady = false;
+      function initMetaPixel(pixelId) {
+        captureFbclidFromHash();
+        if (!pixelId || _pixelReady) return;
+        _pixelReady = true;
+        !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+        n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+        n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+        t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+        document,'script','https://connect.facebook.net/en_US/fbevents.js');
+        fbq('init', pixelId);
+        fbq('track', 'PageView');
+        // SPA hash routing tidak reload halaman — base Pixel code cuma
+        // menembak PageView sekali di load awal, jadi perlu ditembak ulang
+        // manual tiap kali hash berubah (pindah halaman).
+        window.addEventListener('hashchange', () => { if (window.fbq) fbq('track', 'PageView'); });
+      }
+
       function applyBrandColors() {
         try {
           const c = SITE.colors;
@@ -2001,6 +3551,7 @@
           applyContent(resolved);
           cacheContent(resolved);
           applyBrandColors();
+          initMetaPixel(SITE.pixelId);
           root.render(<App key="live" />);
           return;
         }
@@ -2013,6 +3564,7 @@
           applyContent(data);
           cacheContent(data);
           applyBrandColors();
+          initMetaPixel(SITE.pixelId);
           root.render(<App key="live" />);
         }).catch(() => {});
       })();

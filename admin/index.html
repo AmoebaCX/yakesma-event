@@ -92,6 +92,8 @@
           excerpt: "", about: [""], benefits: [""], featured: false,
           requiresShipping: false,
           donationEnabled: false, donationLabel: "",
+          runSubmission: false, runMinKm: 5, submissionEnd: "", certificateTemplate: "", certificateLayout: null,
+          packages: [],
         };
       }
       async function loadContent() {
@@ -117,7 +119,12 @@
           const res = await apiFetch("/api/content", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ site: data.site, categories: data.categories, events: data.events, expectedUpdatedAt }),
+            body: JSON.stringify({
+              site: data.site,
+              categories: data.categories,
+              events: data.events,
+              expectedUpdatedAt,
+            }),
           });
           const body = await res.json().catch(() => ({}));
           if (!res.ok) return { ok: false, error: body.error || "Gagal menyimpan.", status: res.status };
@@ -248,6 +255,248 @@
         );
       }
 
+      /* ============ SERTIFIKAT (template resmi + tata letak) ============
+         Pratinjau di sini HARUS menghasilkan gambar yang sama dengan renderTemplateCertificate
+         di yakesma-site/index.html (yang dipakai peserta saat mengunduh). */
+      const CERT_FIELD_LABELS = [
+        ["name", "Nama peserta"], ["distance", "Jarak"], ["duration", "Waktu tempuh"],
+        ["pace", "Pace"], ["runDate", "Tanggal lari"], ["certificateNo", "No. sertifikat"],
+      ];
+      const DEFAULT_CERT_LAYOUT = {
+        name: { show: true, x: 50, y: 45, size: 6, color: "#185838", align: "center", bold: true, label: "" },
+        distance: { show: true, x: 30, y: 65, size: 3.2, color: "#185838", align: "center", bold: true, label: "" },
+        duration: { show: true, x: 50, y: 65, size: 3.2, color: "#185838", align: "center", bold: true, label: "" },
+        pace: { show: true, x: 70, y: 65, size: 3.2, color: "#185838", align: "center", bold: true, label: "" },
+        runDate: { show: true, x: 50, y: 76, size: 2.2, color: "#5b6b63", align: "center", bold: false, label: "Tanggal lari: " },
+        certificateNo: { show: true, x: 8, y: 92, size: 1.6, color: "#8a968f", align: "left", bold: false, label: "No. Sertifikat: " },
+      };
+      const SAMPLE_CERT = { name: "Nama Peserta Contoh", distanceKm: 5.02, durationSeconds: 1694, paceSeconds: 337, runDate: "2026-11-22", certificateNo: "YKS-AB12CD-1" };
+
+      function certFieldText(key, c) {
+        if (key === "name") return c.name;
+        if (key === "distance") return new Intl.NumberFormat("id-ID", { maximumFractionDigits: 2 }).format(c.distanceKm) + " km";
+        if (key === "duration") return formatDurasi(c.durationSeconds);
+        if (key === "pace") return formatPace(c.paceSeconds) + " /km";
+        if (key === "runDate") return new Intl.DateTimeFormat("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(c.runDate + "T00:00:00")).replace("Minggu", "Ahad");
+        if (key === "certificateNo") return c.certificateNo;
+        return "";
+      }
+      function loadCertImage(src) {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = src;
+        });
+      }
+      async function renderTemplateCertificate(templateUrl, layout, c) {
+        const img = await loadCertImage(templateUrl);
+        if (!img) return null;
+        const W = img.naturalWidth, H = img.naturalHeight;
+        const canvas = document.createElement("canvas");
+        canvas.width = W; canvas.height = H;
+        const ctx = canvas.getContext("2d");
+        try { await Promise.all(["500", "800"].map((w) => document.fonts.load(w + " 40px 'Plus Jakarta Sans'"))); } catch (e) {}
+        ctx.drawImage(img, 0, 0, W, H);
+        ctx.textBaseline = "middle";
+        Object.keys(layout).forEach((key) => {
+          const f = layout[key];
+          if (!f || !f.show) return;
+          const text = (f.label || "") + certFieldText(key, c);
+          let size = Math.round((f.size / 100) * H);
+          const font = (sz) => (f.bold ? "800 " : "500 ") + sz + "px 'Plus Jakarta Sans', system-ui, sans-serif";
+          ctx.font = font(size);
+          while (ctx.measureText(text).width > W * 0.92 && size > 8) { size -= 2; ctx.font = font(size); }
+          ctx.fillStyle = f.color;
+          ctx.textAlign = f.align;
+          ctx.fillText(text, (f.x / 100) * W, (f.y / 100) * H);
+        });
+        return canvas;
+      }
+
+      /** Template sertifikat perlu resolusi lebih tinggi dari gambar event biasa (dicetak/diunduh A4). */
+      async function uploadCertTemplate(file) {
+        let toUpload = file;
+        try { toUpload = await compressImageForUpload(file, 2480, 0.9); } catch (e) {}
+        if (toUpload.size > 3 * 1024 * 1024) {
+          try { toUpload = await compressImageForUpload(file, 2000, 0.85); } catch (e) {}
+        }
+        try {
+          const form = new FormData();
+          form.append("file", toUpload);
+          const res = await apiFetch("/api/content/image", { method: "POST", body: form });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) return { ok: false, error: body.error || "Gagal mengunggah template." };
+          return { ok: true, url: body.url };
+        } catch (e) {
+          return { ok: false, error: "Tidak bisa terhubung ke server." };
+        }
+      }
+
+      function CertificateSettings({ template, layout, onChange }) {
+        const lay = layout || DEFAULT_CERT_LAYOUT;
+        const [selected, setSelected] = useState("name");
+        const [preview, setPreview] = useState("");
+        const [uploading, setUploading] = useState(false);
+        const [error, setError] = useState("");
+
+        useEffect(() => {
+          if (!template) { setPreview(""); return; }
+          let stale = false;
+          const t = setTimeout(() => {
+            renderTemplateCertificate(template, lay, SAMPLE_CERT).then((canvas) => {
+              if (stale) return;
+              if (!canvas) { setError("Template gagal dimuat."); return; }
+              setPreview(canvas.toDataURL("image/jpeg", 0.8));
+            });
+          }, 150);
+          return () => { stale = true; clearTimeout(t); };
+        }, [template, JSON.stringify(lay)]);
+
+        async function onUpload(e) {
+          const file = e.target.files && e.target.files[0];
+          e.target.value = "";
+          if (!file) return;
+          setError(""); setUploading(true);
+          const res = await uploadCertTemplate(file);
+          setUploading(false);
+          if (!res.ok) { setError(res.error); return; }
+          onChange(res.url, layout || DEFAULT_CERT_LAYOUT);
+        }
+        function setField(k, v) {
+          onChange(template, Object.assign({}, lay, { [selected]: Object.assign({}, lay[selected], { [k]: v }) }));
+        }
+        function placeAt(e) {
+          const r = e.currentTarget.getBoundingClientRect();
+          const x = Math.round(((e.clientX - r.left) / r.width) * 1000) / 10;
+          const y = Math.round(((e.clientY - r.top) / r.height) * 1000) / 10;
+          onChange(template, Object.assign({}, lay, { [selected]: Object.assign({}, lay[selected], { x, y, show: true }) }));
+        }
+        const f = lay[selected];
+
+        return (
+          <div className="col-span-2 space-y-3 border-t border-brand-100 pt-3">
+            <p className="text-sm font-bold text-brand-dark">Sertifikat</p>
+            <p className="text-xs text-ink/55">
+              Unggah desain sertifikat resmi yang <b>belum berisi nama/hasil</b> (JPG/PNG, idealnya A4 lanskap ~3508×2480px).
+              Tanpa template, peserta mendapat desain bawaan. PDF khusus per peserta bisa diunggah di tab Hasil Lari.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-ink/70 hover:bg-slate-50">
+                {uploading ? "Mengunggah…" : template ? "Ganti Template" : "Unggah Template"}
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onUpload} disabled={uploading} />
+              </label>
+              {template && <button type="button" onClick={() => onChange("", null)} className="text-sm font-semibold text-orange hover:underline">Hapus template</button>}
+            </div>
+            {error && <p className="text-xs text-orange">{error}</p>}
+
+            {template && (
+              <React.Fragment>
+                <div className="flex flex-wrap gap-1.5">
+                  {CERT_FIELD_LABELS.map(([k, lbl]) => (
+                    <button key={k} type="button" onClick={() => setSelected(k)}
+                      className={"rounded-full border px-3 py-1 text-xs font-semibold " + (selected === k ? "border-brand bg-brand text-white" : "border-slate-300 bg-white text-ink/70") + (lay[k].show ? "" : " opacity-50")}>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-ink/55">Klik pada pratinjau untuk memindahkan <b>{(CERT_FIELD_LABELS.find((x) => x[0] === selected) || [])[1]}</b> ke titik itu.</p>
+                <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                  {preview
+                    ? <img src={preview} alt="Pratinjau sertifikat" onClick={placeAt} className="w-full cursor-crosshair" />
+                    : <p className="p-6 text-center text-xs text-ink/45">Menyiapkan pratinjau…</p>}
+                </div>
+                <div className="grid grid-cols-2 gap-3 rounded-lg bg-white p-3 sm:grid-cols-3">
+                  <label className="col-span-2 flex items-center gap-2 text-sm font-semibold text-ink/80 sm:col-span-3">
+                    <input type="checkbox" checked={!!f.show} onChange={(e) => setField("show", e.target.checked)} /> Tampilkan di sertifikat
+                  </label>
+                  <div className="col-span-2 sm:col-span-3"><Text label="Teks di depan (opsional)" value={f.label} onChange={(v) => setField("label", v)} placeholder="mis. Jarak: " /></div>
+                  <div><Label>Ukuran ({f.size}%)</Label><input type="range" min="0.5" max="20" step="0.1" value={f.size} onChange={(e) => setField("size", Number(e.target.value))} className="w-full" /></div>
+                  <div><Label>Posisi X ({f.x}%)</Label><input type="range" min="0" max="100" step="0.5" value={f.x} onChange={(e) => setField("x", Number(e.target.value))} className="w-full" /></div>
+                  <div><Label>Posisi Y ({f.y}%)</Label><input type="range" min="0" max="100" step="0.5" value={f.y} onChange={(e) => setField("y", Number(e.target.value))} className="w-full" /></div>
+                  <div><Label>Warna</Label><input type="color" value={f.color} onChange={(e) => setField("color", e.target.value)} className="h-9 w-full rounded" /></div>
+                  <Select label="Rata" value={f.align} onChange={(v) => setField("align", v)} options={["left", "center", "right"]} />
+                  <label className="flex items-end gap-2 pb-2 text-sm font-semibold text-ink/80">
+                    <input type="checkbox" checked={!!f.bold} onChange={(e) => setField("bold", e.target.checked)} /> Tebal
+                  </label>
+                </div>
+              </React.Fragment>
+            )}
+          </div>
+        );
+      }
+
+      /* ============ KATALOG PAKET ============ */
+      const PUBLIC_SITE_URL = "https://runforcharity.morningflow.id";
+      function emptyPackage() {
+        return { id: "", name: "", description: "", price: 0, medal: false, jersey: false, active: true, internal: false };
+      }
+      function PackagesEditor({ slug, packages, onChange }) {
+        const list = packages || [];
+        const [copied, setCopied] = useState("");
+        function update(i, patch) { onChange(list.map((p, j) => (j === i ? Object.assign({}, p, patch) : p))); }
+        function setName(i, v) {
+          const p = list[i];
+          const autoId = !p.id || p.id === slugify(p.name).slice(0, 20);
+          update(i, autoId ? { name: v, id: slugify(v).slice(0, 20) } : { name: v });
+        }
+        function move(i, dir) {
+          const j = i + dir;
+          if (j < 0 || j >= list.length) return;
+          const arr = list.slice(); const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+          onChange(arr);
+        }
+        function copyLink(link) {
+          try { navigator.clipboard.writeText(link); setCopied(link); setTimeout(() => setCopied(""), 1800); } catch (e) { prompt("Salin link ini:", link); }
+        }
+        return (
+          <div className="sm:col-span-2 space-y-3 rounded-xl border border-brand-100 bg-brand-50/40 p-3">
+            <div>
+              <p className="text-sm font-bold text-brand-dark">Katalog Paket (opsional)</p>
+              <p className="text-xs text-ink/55">
+                Kalau ada paket aktif, pendaftar memilih paket dan harga di bawah tidak dipakai. Paket dengan medali/jersey
+                otomatis meminta alamat & ongkir; ukuran jersey hanya diminta untuk paket berisi jersey.
+                Paket <b>internal</b> tersembunyi dari publik, hanya bisa dipilih lewat link khususnya, dan tidak dikirim ke Meta Ads.
+              </p>
+            </div>
+            {list.map((p, i) => {
+              const link = PUBLIC_SITE_URL + "/#/event/" + (slug || "...") + "?paket=" + (p.id || "...");
+              return (
+                <div key={i} className={"space-y-2 rounded-lg border bg-white p-3 " + (p.internal ? "border-gold/60" : "border-slate-200")}>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="col-span-2"><Text label="Nama paket" value={p.name} onChange={(v) => setName(i, v)} placeholder="mis. Paket A" /></div>
+                    <Text label="Kode" value={p.id} onChange={(v) => update(i, { id: v.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20) })} placeholder="paket-a" />
+                    <Num label="Harga (Rp)" value={p.price} onChange={(v) => update(i, { price: v })} />
+                    <div className="col-span-2 sm:col-span-4"><Text label="Isi paket (tampil ke pendaftar)" value={p.description} onChange={(v) => update(i, { description: v })} placeholder="mis. Donasi pohon + medali finisher" /></div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-semibold text-ink/75">
+                    <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.medal} onChange={(e) => update(i, { medal: e.target.checked })} /> 🏅 Medali</label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.jersey} onChange={(e) => update(i, { jersey: e.target.checked })} /> 👕 Jersey</label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.active} onChange={(e) => update(i, { active: e.target.checked })} /> Aktif</label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.internal} onChange={(e) => update(i, { internal: e.target.checked })} /> Internal / testing</label>
+                    <span className="ml-auto flex items-center gap-1">
+                      <button type="button" onClick={() => move(i, -1)} title="Naik" className="grid h-7 w-7 place-items-center rounded text-ink/50 hover:bg-slate-100">▲</button>
+                      <button type="button" onClick={() => move(i, 1)} title="Turun" className="grid h-7 w-7 place-items-center rounded text-ink/50 hover:bg-slate-100">▼</button>
+                      <button type="button" onClick={() => onChange(list.filter((_, j) => j !== i))} title="Hapus paket" className="grid h-7 w-7 place-items-center rounded text-orange hover:bg-orange/10">🗑</button>
+                    </span>
+                  </div>
+                  {p.internal && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-md bg-gold/10 px-2.5 py-2 text-xs">
+                      <span className="font-semibold text-ink/70">Link khusus:</span>
+                      <code className="break-all text-ink/70">{link}</code>
+                      <button type="button" onClick={() => copyLink(link)} className="rounded border border-slate-300 bg-white px-2 py-0.5 font-semibold text-ink/70 hover:bg-slate-50">{copied === link ? "Tersalin ✓" : "Salin"}</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <button type="button" onClick={() => onChange(list.concat(emptyPackage()))}
+              className="rounded-lg border border-dashed border-brand px-3 py-1.5 text-sm font-semibold text-brand hover:bg-white">+ Tambah Paket</button>
+          </div>
+        );
+      }
+
       /* ============ EVENT EDITOR ============ */
       function EventEditor({ initial, categories, onSave, onCancel, existingSlugs }) {
         const [ev, setEv] = useState(clone(initial));
@@ -339,6 +588,24 @@
                   <Text label="Tujuan Donasi" value={ev.donationLabel} onChange={(v) => set("donationLabel", v)} placeholder="mis. Penanaman Pohon di Bali" />
                 </div>
               )}
+              <div className="sm:col-span-2 flex items-end pb-1">
+                <Toggle label="Aktifkan setor bukti lari, peringkat & e-sertifikat (lari virtual)"
+                  checked={!!ev.runSubmission} onChange={(v) => set("runSubmission", v)} />
+              </div>
+              {ev.runSubmission && (
+                <div className="sm:col-span-2 grid grid-cols-2 gap-3 rounded-xl border border-brand-100 bg-brand-50/40 p-3">
+                  <Num label="Jarak minimal (km)" value={ev.runMinKm == null ? 5 : ev.runMinKm} onChange={(v) => set("runMinKm", v)} min={1}
+                    hint="Satu kali lari (single run)." />
+                  <Text label="Batas setor bukti lari (opsional)" type="date" value={ev.submissionEnd || ""} onChange={(v) => set("submissionEnd", v)}
+                    hint="Kosongkan = sama dengan tanggal selesai pelaksanaan." />
+                  <p className="col-span-2 text-xs text-ink/55">
+                    Peserta dengan tiket Lunas/Gratis bisa setor dari tanggal mulai pelaksanaan sampai batas setor, lewat menu
+                    "Setor Lari" di situs. Hasil langsung masuk peringkat; periksa & tolak yang tidak valid di tab Hasil Lari.
+                  </p>
+                  <CertificateSettings template={ev.certificateTemplate || ""} layout={ev.certificateLayout || null}
+                    onChange={(url, layout) => setEv((p) => ({ ...p, certificateTemplate: url, certificateLayout: layout }))} />
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <Text label="Tanggal Mulai" type="date" value={ev.date} onChange={(v) => set("date", v)} />
                 <Text label="Tanggal Selesai (opsional)" type="date" value={ev.dateEnd} onChange={(v) => set("dateEnd", v)}
@@ -353,10 +620,12 @@
                   hint="Kosongkan jika pendaftaran boleh kapan saja." />
                 <Text label="Pendaftaran Ditutup (opsional)" type="date" value={ev.registrationEnd} onChange={(v) => set("registrationEnd", v)} />
               </div>
-              <Num label="Harga (Rp)" value={ev.price} onChange={(v) => set("price", v)} hint="0 = Gratis" />
+              <PackagesEditor slug={ev.slug} packages={ev.packages} onChange={(arr) => set("packages", arr)} />
+              <Num label="Harga (Rp)" value={ev.price} onChange={(v) => set("price", v)} hint={(ev.packages || []).some((p) => p.active) ? "Tidak dipakai — event ini memakai katalog paket." : "0 = Gratis"} />
               <div className="grid grid-cols-2 gap-3">
                 <Num label="Kuota" value={ev.quota} onChange={(v) => set("quota", v)} />
-                <Num label="Sudah daftar" value={ev.registered} onChange={(v) => set("registered", v)} />
+                <Num label="Peserta tambahan (manual)" value={ev.registered} onChange={(v) => set("registered", v)}
+                  hint={"Terkonfirmasi otomatis (Lunas + Gratis): " + (ev.confirmedCount || 0) + ". Tampil di situs: " + ((ev.confirmedCount || 0) + (Number(ev.registered) || 0)) + " terisi."} />
               </div>
               <div className="sm:col-span-2"><Area label="Ringkasan singkat" value={ev.excerpt} onChange={(v) => set("excerpt", v)} rows={2} hint="1 kalimat, muncul di kartu & detail." /></div>
               <div className="sm:col-span-2"><Area label="Deskripsi" value={aboutText} onChange={(v) => set("about", v)} rows={4} hint="Satu paragraf per baris." /></div>
@@ -498,6 +767,30 @@
               </div>
             </div>
             <div>
+              <Label>QRIS Pembayaran</Label>
+              <p className="mb-2 text-xs text-ink/45">
+                Isi (teks) QRIS statis lembaga, diawali <span className="font-mono">000201</span>. Bila diisi, pendaftar event berbayar
+                langsung melihat QRIS dengan nominal + kode unik (Rp1–999) terisi otomatis, dan tombol "Saya sudah bayar".
+                Kosongkan untuk kembali ke pembayaran lewat CS WhatsApp.
+              </p>
+              <Area label="Payload QRIS" value={s.qris} onChange={(v) => setS("qris", v.replace(/\s+/g, ""))} rows={3} />
+              {s.qris ? (
+                qrisValid(s.qris) ? (
+                  <p className="mt-1 text-xs font-semibold text-brand-700">✓ QRIS valid — a.n. {qrisInfo(s.qris).merchant}{qrisInfo(s.qris).nmid ? " · NMID " + qrisInfo(s.qris).nmid : ""}</p>
+                ) : (
+                  <p className="mt-1 text-xs font-semibold text-orange">✗ QRIS tidak valid (CRC tidak cocok / terpotong). Jangan disimpan — peserta akan kembali diarahkan ke CS WhatsApp.</p>
+                )
+              ) : null}
+            </div>
+            <div>
+              <Label>Meta Pixel & Conversions API</Label>
+              <p className="mb-2 text-xs text-ink/45">Dari Events Manager Meta Business → Pixel → Settings. Kosongkan untuk mematikan tracking.</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Text label="Pixel ID" value={s.pixelId} onChange={(v) => setS("pixelId", v)} placeholder="mis. 1234567890123456" />
+              </div>
+              <p className="mt-1 text-xs text-ink/45">Access Token untuk Conversions API (server) diisi terpisah oleh developer sebagai environment variable di Vercel — bukan di sini, karena itu rahasia.</p>
+            </div>
+            <div>
               <Label>Warna Brand</Label>
               <div className="flex flex-wrap gap-4">
                 {[["green","Hijau utama"],["dark","Hijau tua"],["gold","Emas"],["orange","Oranye"]].map(([k, lbl]) => (
@@ -566,6 +859,15 @@
         return res;
       }
 
+      /** Cabut SEMUA sesi admin (termasuk sesi ini) — dipakai kalau perangkat admin hilang/dipinjam. */
+      async function revokeAllSessions() {
+        if (!confirm("Keluarkan semua perangkat yang sedang login admin, termasuk perangkat ini? Semua admin harus login ulang.")) return;
+        const res = await apiFetch("/api/admin/revoke", { method: "POST" });
+        if (!res.ok && res.status !== 401) { alert("Gagal mencabut sesi. Coba lagi."); return; }
+        clearApiToken();
+        location.reload();
+      }
+
       /**
        * Kecilkan & padatkan gambar di browser sebelum diunggah — foto langsung dari HP
        * (kamera 4000×3000px, PNG multi-MB) kalau diunggah apa adanya bikin situs publik
@@ -629,20 +931,42 @@
       // Sinkron dengan yakesma-api/src/lib/validate.ts dan yakesma-site/index.html —
       // dipakai untuk menampilkan rincian biaya di panel Detail pendaftaran.
       const SHIRT_SIZE_SURCHARGE = { S: 0, M: 0, L: 0, XL: 0, "2XL": 25000, "3XL": 50000, "4XL": 75000 };
-      function posShippingFee(province) {
-        const p = (province || "").toUpperCase();
-        if (p.includes("PAPUA") || p.includes("MALUKU")) return 50000;
-        if (p.includes("JAWA") || p.includes("JAKARTA") || p.includes("YOGYAKARTA") || p.includes("BANTEN") || p.includes("BALI")) {
-          return 20000;
-        }
-        return 35000;
-      }
       const REG_STATUS_LABEL = {
         free: { text: "Gratis", cls: "bg-brand-50 text-brand-700" },
         pending_transfer: { text: "Menunggu Konfirmasi", cls: "bg-gold/20 text-orange" },
         paid: { text: "Lunas", cls: "bg-brand text-white" },
         cancelled: { text: "Dibatalkan", cls: "bg-slate-200 text-ink/50" },
       };
+      /* QRIS — sama dengan versi di index.html (situs), di sini hanya untuk validasi di Pengaturan. */
+      function qrisCrc16(str) {
+        let crc = 0xffff;
+        for (let i = 0; i < str.length; i++) {
+          crc ^= str.charCodeAt(i) << 8;
+          for (let j = 0; j < 8; j++) crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+        }
+        return crc.toString(16).toUpperCase().padStart(4, "0");
+      }
+      function qrisTlv(str) {
+        const out = [];
+        for (let i = 0; i + 4 <= str.length; ) {
+          const len = parseInt(str.slice(i + 2, i + 4), 10);
+          if (isNaN(len)) return null;
+          out.push([str.slice(i, i + 2), str.slice(i + 4, i + 4 + len)]);
+          i += 4 + len;
+        }
+        return out;
+      }
+      function qrisValid(payload) {
+        return typeof payload === "string" && /^000201/.test(payload) && payload.length > 12 &&
+          payload.slice(-8, -4) === "6304" && qrisCrc16(payload.slice(0, -4)) === payload.slice(-4).toUpperCase();
+      }
+      function qrisInfo(payload) {
+        const top = qrisTlv(payload) || [];
+        const get = (t) => (top.find((x) => x[0] === t) || [])[1] || "";
+        const sub = qrisTlv(get("51")) || [];
+        return { merchant: get("59"), city: get("60"), nmid: (sub.find((x) => x[0] === "02") || [])[1] || "" };
+      }
+
       function RegStatusBadge({ status }) {
         const s = REG_STATUS_LABEL[status] || REG_STATUS_LABEL.free;
         return <span className={"rounded-full px-2.5 py-1 text-[11px] font-bold " + s.cls}>{s.text}</span>;
@@ -657,13 +981,19 @@
         const [error, setError] = useState("");
         const [busyId, setBusyId] = useState(null);
         const [expandedId, setExpandedId] = useState(null);
+        const [page, setPage] = useState(1);
+        const PAGE_SIZE = 50;
+        const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-        async function load() {
+        async function load(targetPage) {
+          const p = targetPage || page;
           setLoading(true); setError("");
           const params = new URLSearchParams();
           if (q) params.set("q", q);
           if (status) params.set("status", status);
-          params.set("pageSize", "100");
+          params.set("page", String(p));
+          params.set("pageSize", String(PAGE_SIZE));
+          setPage(p);
           const res = await apiFetch("/api/registrations?" + params.toString());
           if (res.status === 401) { location.reload(); return; }
           const body = await res.json().catch(() => ({}));
@@ -704,16 +1034,17 @@
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()}
-                placeholder="Cari nama/email/telepon…" className={inputCls + " max-w-xs"} />
+              <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load(1)}
+                placeholder="Cari nama/email/telepon/kode tiket, atau nominal mutasi (mis. 128047)…" className={inputCls + " max-w-xs"} />
               <select value={status} onChange={(e) => setStatus(e.target.value)} className={inputCls + " max-w-[220px]"}>
                 <option value="">Semua status</option>
                 <option value="free">Gratis</option>
                 <option value="pending_transfer">Menunggu Konfirmasi</option>
+                <option value="claimed">💰 Sudah bayar (cek mutasi)</option>
                 <option value="paid">Lunas</option>
                 <option value="cancelled">Dibatalkan</option>
               </select>
-              <button onClick={load} className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">Cari</button>
+              <button onClick={() => load(1)} className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">Cari</button>
             </div>
 
             {error && <p className="rounded-lg bg-orange/10 px-3 py-2 text-sm text-orange">{error}</p>}
@@ -744,7 +1075,9 @@
                       const expanded = expandedId === r.id;
                       const sizesArr = Array.isArray(r.shirt_sizes) ? r.shirt_sizes : (r.shirt_size ? [r.shirt_size] : []);
                       const shirtSurcharge = sizesArr.reduce((sum, sz) => sum + (SHIRT_SIZE_SURCHARGE[sz] || 0), 0);
-                      const shippingFee = r.province ? posShippingFee(r.province) : 0;
+                      // Ongkir = sisa total setelah tiket, tambahan jersey, dan donasi — selalu sama dengan yang ditagih server.
+                      const uniqueCode = Number(r.unique_code) || 0;
+                      const shippingFee = hasShipping ? Math.max(0, r.total_amount - r.unit_price * r.quantity - shirtSurcharge - donationAmount - uniqueCode) : 0;
                       return (
                         <React.Fragment key={r.id}>
                           <tr className="border-b border-slate-100 last:border-0">
@@ -754,15 +1087,29 @@
                             </td>
                             <td className="px-3 py-2">
                               <p className="text-ink/80">{r.event_title}</p>
+                              {r.package_name && (
+                                <p className="text-xs font-semibold text-brand-700">
+                                  {r.package_name}{r.is_internal && <span className="ml-1 rounded-full bg-gold/25 px-1.5 py-0.5 text-[10px] text-orange">Internal</span>}
+                                </p>
+                              )}
                               <p className="text-xs text-ink/40">{formatTanggal(r.event_date)}</p>
                             </td>
                             <td className="px-3 py-2">{r.quantity}</td>
-                            <td className="px-3 py-2 font-semibold">{formatRupiah(r.total_amount)}</td>
+                            <td className="px-3 py-2 font-semibold">
+                              {formatRupiah(r.total_amount)}
+                              {uniqueCode > 0 && <p className="text-[10px] font-normal text-ink/45">kode unik {uniqueCode}</p>}
+                            </td>
                             <td className="px-3 py-2 font-mono text-xs">{r.ticket_code}</td>
                             <td className="px-3 py-2">
                               <RegStatusBadge status={r.payment_status} />
                               {r.payment_status === "paid" && r.confirmed_by && (
                                 <p className="mt-1 text-[10px] text-ink/40">via {r.confirmed_by}</p>
+                              )}
+                              {r.payment_status === "cancelled" && r.cancel_reason === "expired" && (
+                                <p className="mt-1 text-[10px] text-orange">Otomatis: belum bayar 24 jam</p>
+                              )}
+                              {r.payment_status === "pending_transfer" && r.payment_claimed_at && (
+                                <p className="mt-1 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold text-brand-700" title={"Diklik " + new Date(r.payment_claimed_at).toLocaleString("id-ID")}>💰 Peserta sudah bayar — cek mutasi</p>
                               )}
                             </td>
                             <td className="px-3 py-2">
@@ -780,6 +1127,11 @@
                                 {r.payment_status === "pending_transfer" && (
                                   <button disabled={busyId === r.id} onClick={() => ubahStatus(r.id, "paid")}
                                     className="rounded-lg bg-brand px-2.5 py-1 text-xs font-bold text-white hover:bg-brand-600 disabled:opacity-50">Tandai Lunas</button>
+                                )}
+                                {r.payment_status === "cancelled" && r.cancel_reason === "expired" && (
+                                  <button disabled={busyId === r.id} title="Peserta sudah transfer tapi pesanannya keburu dibatalkan otomatis"
+                                    onClick={() => { if (confirm("Pulihkan pesanan " + r.ticket_code + " dan tandai Lunas? Pastikan transfernya sudah masuk.")) ubahStatus(r.id, "paid"); }}
+                                    className="rounded-lg bg-brand px-2.5 py-1 text-xs font-bold text-white hover:bg-brand-600 disabled:opacity-50">Pulihkan & Tandai Lunas</button>
                                 )}
                                 {(r.payment_status === "pending_transfer" || r.payment_status === "free") && (
                                   <button disabled={busyId === r.id} onClick={() => ubahStatus(r.id, "cancelled")}
@@ -807,7 +1159,7 @@
                                   {donationAmount > 0 && (
                                     <p><span className="font-semibold text-ink/60">Donasi:</span> {formatRupiah(donationAmount)}</p>
                                   )}
-                                  <p className="sm:col-span-2"><span className="font-semibold text-ink/60">Rincian Biaya:</span> Tiket {formatRupiah(r.unit_price * r.quantity)}{shirtSurcharge > 0 ? " + Ukuran jersey " + formatRupiah(shirtSurcharge) : ""}{shippingFee > 0 ? " + Ongkir " + formatRupiah(shippingFee) : ""}{donationAmount > 0 ? " + Donasi " + formatRupiah(donationAmount) : ""} = {formatRupiah(r.total_amount)}</p>
+                                  <p className="sm:col-span-2"><span className="font-semibold text-ink/60">Rincian Biaya:</span> Tiket {formatRupiah(r.unit_price * r.quantity)}{shirtSurcharge > 0 ? " + Ukuran jersey " + formatRupiah(shirtSurcharge) : ""}{shippingFee > 0 ? " + Ongkir " + formatRupiah(shippingFee) : ""}{donationAmount > 0 ? " + Donasi " + formatRupiah(donationAmount) : ""}{uniqueCode > 0 ? " + Kode unik " + formatRupiah(uniqueCode) : ""} = {formatRupiah(r.total_amount)}</p>
                                 </div>
                               </td>
                             </tr>
@@ -819,12 +1171,270 @@
                 </table>
               </div>
             )}
+            {!loading && pageCount > 1 && (
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <button disabled={page <= 1} onClick={() => load(page - 1)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 font-semibold text-ink/70 hover:bg-slate-50 disabled:opacity-40">‹ Sebelumnya</button>
+                <span className="text-ink/55">Halaman {page} dari {pageCount} · {total} pendaftaran</span>
+                <button disabled={page >= pageCount} onClick={() => load(page + 1)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 font-semibold text-ink/70 hover:bg-slate-50 disabled:opacity-40">Berikutnya ›</button>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      /* ============ HASIL LARI (setor bukti lari virtual) ============ */
+      function formatDurasi(sec) {
+        const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+        const mm = String(m).padStart(2, "0"), ss = String(s).padStart(2, "0");
+        return h > 0 ? h + ":" + mm + ":" + ss : m + ":" + ss;
+      }
+      function formatPace(sec) { return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0"); }
+      // Awalan ' untuk isian yang diawali = + - @ supaya Excel tidak menjalankannya sebagai rumus (CSV injection).
+      function csvCell(v) {
+        let s = v == null ? "" : String(v);
+        if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+        return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }
+
+      function HasilLariPanel({ events }) {
+        const runEvents = events.filter((e) => e.runSubmission);
+        const [slug, setSlug] = useState(runEvents.length ? runEvents[0].slug : "");
+        const [items, setItems] = useState([]);
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState("");
+        const [filter, setFilter] = useState("");
+        const [q, setQ] = useState("");
+        const [busyId, setBusyId] = useState(null);
+        const [uploads, setUploads] = useState([]); // [{name, status: "menunggu"|"mengunggah"|"ok"|"gagal", message}]
+
+        async function uploadCertificates(e) {
+          const files = Array.from(e.target.files || []);
+          e.target.value = "";
+          if (!files.length) return;
+          const list = files.map((f) => ({ name: f.name, status: "menunggu", message: "" }));
+          setUploads(list.slice());
+          const update = (i, patch) => { list[i] = Object.assign({}, list[i], patch); setUploads(list.slice()); };
+          let next = 0;
+          // 3 sekaligus — satu file per request supaya tidak melewati batas ukuran request server.
+          async function worker() {
+            while (next < files.length) {
+              const i = next++;
+              update(i, { status: "mengunggah" });
+              const form = new FormData();
+              form.append("event", slug);
+              form.append("file", files[i]);
+              try {
+                const res = await apiFetch("/api/runs/certificates", { method: "POST", body: form });
+                const body = await res.json().catch(() => ({}));
+                if (res.ok) update(i, { status: "ok", message: body.certificateNo + " · " + (body.registrantName || "") });
+                else update(i, { status: "gagal", message: body.error || "Gagal mengunggah." });
+              } catch (err) {
+                update(i, { status: "gagal", message: "Tidak bisa terhubung ke server." });
+              }
+            }
+          }
+          await Promise.all([worker(), worker(), worker()]);
+          load();
+        }
+
+        async function hapusSertifikat(item) {
+          if (!confirm("Hapus PDF khusus " + item.certificateNo + "? Peserta akan kembali mendapat sertifikat otomatis.")) return;
+          setBusyId(item.id);
+          const res = await apiFetch("/api/runs/certificates?event=" + encodeURIComponent(slug) + "&certificateNo=" + encodeURIComponent(item.certificateNo), { method: "DELETE" });
+          setBusyId(null);
+          if (!res.ok) { alert("Gagal menghapus."); return; }
+          load();
+        }
+
+        async function load() {
+          if (!slug) return;
+          setLoading(true); setError("");
+          const res = await apiFetch("/api/runs?event=" + encodeURIComponent(slug));
+          if (res.status === 401) { location.reload(); return; }
+          const body = await res.json().catch(() => ({}));
+          setLoading(false);
+          if (!res.ok) { setError(body.error || "Gagal memuat data."); return; }
+          setItems(body.items || []);
+        }
+        useEffect(() => { load(); }, [slug]);
+
+        async function review(item, status) {
+          let rejectReason = "";
+          if (status === "rejected") {
+            rejectReason = prompt("Alasan penolakan (ditampilkan ke peserta):", "Screenshot tidak menunjukkan jarak/waktu/tanggal dengan jelas.");
+            if (rejectReason == null) return;
+            rejectReason = rejectReason.trim();
+            if (!rejectReason) { alert("Alasan wajib diisi."); return; }
+          }
+          setBusyId(item.id);
+          const res = await apiFetch("/api/runs/" + item.id, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status, rejectReason }),
+          });
+          setBusyId(null);
+          if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.error || "Gagal menyimpan."); return; }
+          load();
+        }
+
+        function eksporPeringkat() {
+          const rows = items.filter((i) => i.status === "accepted").sort((a, b) => a.rank - b.rank);
+          const header = ["Peringkat", "No. Sertifikat", "Nama Peserta", "Kode Tiket", "Pendaftar", "Email", "Telepon", "Jarak (km)", "Waktu", "Pace (/km)", "Tanggal Lari", "Aplikasi"];
+          const lines = [header.join(",")].concat(rows.map((r) => [r.rank, r.certificateNo, r.participantName, r.ticketCode, r.registrantName, r.email, r.phone, r.distanceKm, formatDurasi(r.durationSeconds), formatPace(r.paceSeconds), r.runDate, r.appName].map(csvCell).join(",")));
+          download("peringkat-" + slug + ".csv", "﻿" + lines.join("\n"), "text/csv;charset=utf-8");
+        }
+
+        if (!runEvents.length) {
+          return (
+            <p className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-ink/50">
+              Belum ada event yang mengaktifkan setor bukti lari. Aktifkan di tab Event → Edit → "Aktifkan setor bukti lari".
+            </p>
+          );
+        }
+
+        const accepted = items.filter((i) => i.status === "accepted");
+        const totalKm = accepted.reduce((s, i) => s + i.distanceKm, 0);
+        const needle = q.trim().toLowerCase();
+        const shown = items
+          .filter((i) => !filter || i.status === filter)
+          .filter((i) => !needle || (i.participantName + " " + i.ticketCode + " " + i.email + " " + i.registrantName).toLowerCase().includes(needle))
+          .sort((a, b) => (a.rank || 1e9) - (b.rank || 1e9) || b.createdAt.localeCompare(a.createdAt));
+
+        return (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-extrabold text-brand-dark">Hasil Lari</h2>
+              <button onClick={eksporPeringkat} disabled={!accepted.length} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50 disabled:opacity-50">Ekspor Peringkat CSV</button>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-xs text-ink/45">Finisher (diterima)</p><p className="text-xl font-extrabold text-brand-dark">{accepted.length}</p></div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-xs text-ink/45">Ditolak</p><p className="text-xl font-extrabold text-orange">{items.length - accepted.length}</p></div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3"><p className="text-xs text-ink/45">Total jarak</p><p className="text-xl font-extrabold text-brand-dark">{totalKm.toLocaleString("id-ID", { maximumFractionDigits: 1 })} km</p></div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-brand-dark">Sertifikat PDF khusus (opsional)</p>
+                  <p className="text-xs text-ink/55">
+                    Menggantikan sertifikat otomatis untuk peserta tertentu. Nama file = No. Sertifikat,
+                    mis. <code>YKS-AB12CD-1.pdf</code> (lihat kolom Sertifikat atau Ekspor Peringkat CSV). Maks 4MB per file.
+                  </p>
+                </div>
+                <label className="cursor-pointer rounded-lg bg-brand px-3 py-2 text-xs font-bold text-white hover:bg-brand-600">
+                  Unggah PDF (bisa banyak)
+                  <input type="file" accept="application/pdf,.pdf" multiple className="hidden" onChange={uploadCertificates} />
+                </label>
+              </div>
+              {uploads.length > 0 && (
+                <div className="mt-3 max-h-56 space-y-1 overflow-y-auto border-t border-slate-100 pt-2 text-xs">
+                  <p className="font-semibold text-ink/60">
+                    {uploads.filter((u) => u.status === "ok").length} berhasil · {uploads.filter((u) => u.status === "gagal").length} gagal · {uploads.length} file
+                  </p>
+                  {uploads.map((u, i) => (
+                    <p key={i} className={u.status === "gagal" ? "text-orange" : u.status === "ok" ? "text-brand-700" : "text-ink/45"}>
+                      {u.status === "ok" ? "✓" : u.status === "gagal" ? "✗" : "…"} {u.name}{u.message ? " — " + u.message : ""}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {runEvents.length > 1 && (
+                <select value={slug} onChange={(e) => setSlug(e.target.value)} className={inputCls + " max-w-xs"}>
+                  {runEvents.map((e) => <option key={e.slug} value={e.slug}>{e.title}</option>)}
+                </select>
+              )}
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cari nama/kode tiket/email…" className={inputCls + " max-w-xs"} />
+              <select value={filter} onChange={(e) => setFilter(e.target.value)} className={inputCls + " max-w-[180px]"}>
+                <option value="">Semua status</option>
+                <option value="accepted">Diterima</option>
+                <option value="rejected">Ditolak</option>
+              </select>
+              <button onClick={load} className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">Muat ulang</button>
+            </div>
+
+            {error && <p className="rounded-lg bg-orange/10 px-3 py-2 text-sm text-orange">{error}</p>}
+            {loading ? (
+              <p className="py-8 text-center text-sm text-ink/40">Memuat…</p>
+            ) : shown.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-ink/50">Belum ada setoran bukti lari.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-ink/40">
+                      <th className="px-3 py-2">#</th>
+                      <th className="px-3 py-2">Peserta</th>
+                      <th className="px-3 py-2">Hasil</th>
+                      <th className="px-3 py-2">Tanggal</th>
+                      <th className="px-3 py-2">Bukti</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2">Sertifikat</th>
+                      <th className="px-3 py-2">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((r) => (
+                      <tr key={r.id} className="border-b border-slate-100 align-top last:border-0">
+                        <td className="px-3 py-2 font-extrabold text-brand-dark">{r.rank || "—"}</td>
+                        <td className="px-3 py-2">
+                          <p className="font-semibold text-ink">{r.participantName}</p>
+                          <p className="text-xs text-ink/50"><span className="font-mono">{r.ticketCode}</span>{r.participantNo > 1 ? " · peserta " + r.participantNo : ""}</p>
+                          <p className="text-xs text-ink/40">{r.email} · {r.phone}</p>
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          <p className="font-semibold">{r.distanceKm.toLocaleString("id-ID")} km · {formatDurasi(r.durationSeconds)}</p>
+                          <p className="text-xs text-ink/50">pace {formatPace(r.paceSeconds)}/km{r.appName ? " · " + r.appName : ""}</p>
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-ink/60">{formatTanggal(r.runDate)}</td>
+                        <td className="px-3 py-2">
+                          {r.proofUrl ? (
+                            <a href={r.proofUrl} target="_blank" rel="noopener noreferrer" title="Buka screenshot">
+                              <img src={r.proofUrl} alt="" className="h-14 w-14 rounded-md border border-slate-200 object-cover" />
+                            </a>
+                          ) : <span className="text-xs text-ink/30">—</span>}
+                        </td>
+                        <td className="px-3 py-2">
+                          {r.status === "accepted"
+                            ? <span className="rounded-full bg-brand px-2.5 py-1 text-[11px] font-bold text-white">Diterima</span>
+                            : <span className="rounded-full bg-orange/15 px-2.5 py-1 text-[11px] font-bold text-orange">Ditolak</span>}
+                          {r.status === "rejected" && r.rejectReason && <p className="mt-1 max-w-[180px] text-[11px] text-ink/50">{r.rejectReason}</p>}
+                        </td>
+                        <td className="px-3 py-2 text-xs">
+                          {r.customCertificateUrl ? (
+                            <React.Fragment>
+                              <a href={r.customCertificateUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-brand hover:underline">PDF khusus ↗</a>
+                              <button disabled={busyId === r.id} onClick={() => hapusSertifikat(r)} className="ml-2 text-orange hover:underline disabled:opacity-50">hapus</button>
+                            </React.Fragment>
+                          ) : <span className="text-ink/45">Otomatis</span>}
+                          <p className="mt-0.5 font-mono text-[10px] text-ink/40">{r.certificateNo}</p>
+                        </td>
+                        <td className="px-3 py-2">
+                          {r.status === "accepted" ? (
+                            <button disabled={busyId === r.id} onClick={() => review(r, "rejected")}
+                              className="rounded-lg border border-orange/40 px-2.5 py-1 text-xs font-semibold text-orange hover:bg-orange/10 disabled:opacity-50">Tolak</button>
+                          ) : (
+                            <button disabled={busyId === r.id} onClick={() => review(r, "accepted")}
+                              className="rounded-lg bg-brand px-2.5 py-1 text-xs font-bold text-white hover:bg-brand-600 disabled:opacity-50">Terima</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-xs text-ink/45">Link screenshot berlaku 1 jam — klik "Muat ulang" kalau gambar tidak terbuka.</p>
           </div>
         );
       }
 
       /* ============ LOGIN ADMIN ============ */
-      function AdminLogin({ onLoggedIn }) {
+      function AdminLogin({ onLoggedIn, idleLoggedOut }) {
         const [password, setPassword] = useState("");
         const [error, setError] = useState("");
         const [loading, setLoading] = useState(false);
@@ -843,6 +1453,11 @@
               <img src="../yakesma-logo.png" alt="YAKESMA" className="mx-auto h-9" />
               <h1 className="mt-5 text-center text-lg font-extrabold text-brand-dark">Panel Admin</h1>
               <p className="mt-1 text-center text-sm text-ink/50">Masuk dengan password admin untuk lanjut.</p>
+              {idleLoggedOut && (
+                <p className="mt-2 rounded-lg bg-gold/10 px-3 py-2 text-center text-xs font-semibold text-brand-dark">
+                  Sesi berakhir karena tidak ada aktivitas. Silakan masuk kembali.
+                </p>
+              )}
               <input autoFocus type="password" value={password}
                 onChange={(e) => { setPassword(e.target.value); setError(""); }}
                 placeholder="Password admin" className="mt-5 w-full rounded-xl border border-slate-300 px-4 py-3 text-center outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20" />
@@ -972,7 +1587,7 @@
           setEditing(null);
         }
 
-        const tabs = [["event", "Event"], ["pendaftaran", "Pendaftaran"], ["pengaturan", "Pengaturan"], ["pratinjau", "Pratinjau"]];
+        const tabs = [["event", "Event"], ["pendaftaran", "Pendaftaran"], ["hasil-lari", "Hasil Lari"], ["pengaturan", "Pengaturan"], ["pratinjau", "Pratinjau"]];
         const badge = {
           idle: { text: "Tersinkron", cls: "text-ink/35" },
           pending: { text: "Menunggu disimpan…", cls: "text-ink/40" },
@@ -1002,6 +1617,7 @@
                 </div>
                 <div className="flex items-center gap-2">
                   <a href="../index.html" target="_blank" rel="noopener" className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Buka situs ↗</a>
+                  <button onClick={revokeAllSessions} title="Keluarkan semua perangkat yang sedang login admin (mis. laptop/HP hilang)" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-ink/60 hover:bg-slate-50">Keluar semua perangkat</button>
                   <button onClick={() => { clearApiToken(); location.reload(); }} title="Kunci" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-ink/60 hover:bg-slate-50">🔒</button>
                 </div>
               </div>
@@ -1039,6 +1655,8 @@
                 <EventList data={data} setData={setData} onEdit={(i) => setEditing(i)} onNew={() => setEditing("new")} />
               ) : tab === "pendaftaran" ? (
                 <PendaftaranPanel />
+              ) : tab === "hasil-lari" ? (
+                <HasilLariPanel events={data.events} />
               ) : tab === "pengaturan" ? (
                 <Settings data={data} setData={setData} />
               ) : (
@@ -1049,15 +1667,49 @@
         );
       }
 
+      // Auto-logout kalau panel tidak disentuh sama sekali selama sekian lama —
+      // melindungi data pendaftar & pengaturan situs kalau admin lupa mengunci
+      // panel di komputer bersama/tanpa pengawasan. Murni dicek di browser
+      // (bukan di server) — token sesi sendiri tetap berlaku sampai masa aktif
+      // 12 jam-nya habis, tapi begitu idle, panel dipaksa kembali ke layar
+      // login supaya orang lain yang lewat tidak bisa langsung pakai sesi ini.
+      const IDLE_TIMEOUT_MS = 15 * 60 * 1000; // 15 menit tanpa aktivitas
+      const IDLE_CHECK_INTERVAL_MS = 15 * 1000;
+      const IDLE_ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "scroll", "touchstart"];
+
       function Root() {
         const [state, setState] = useState("checking"); // checking | out | in
+        const [idleLoggedOut, setIdleLoggedOut] = useState(false);
+        const lastActivityRef = useRef(Date.now());
+
         useEffect(() => {
           const tok = getApiToken();
           if (!tok) { setState("out"); return; }
           apiFetch("/api/admin/session").then((res) => setState(res.ok ? "in" : "out"));
         }, []);
+
+        useEffect(() => {
+          if (state !== "in") return;
+          lastActivityRef.current = Date.now();
+          const markActive = () => { lastActivityRef.current = Date.now(); };
+          IDLE_ACTIVITY_EVENTS.forEach((ev) => window.addEventListener(ev, markActive, { passive: true }));
+          const timer = setInterval(() => {
+            if (Date.now() - lastActivityRef.current >= IDLE_TIMEOUT_MS) {
+              clearApiToken();
+              setIdleLoggedOut(true);
+              setState("out");
+            }
+          }, IDLE_CHECK_INTERVAL_MS);
+          return () => {
+            IDLE_ACTIVITY_EVENTS.forEach((ev) => window.removeEventListener(ev, markActive));
+            clearInterval(timer);
+          };
+        }, [state]);
+
         if (state === "checking") return <p className="grid min-h-screen place-items-center text-sm text-ink/40">Memuat…</p>;
-        if (state === "out") return <AdminLogin onLoggedIn={() => setState("in")} />;
+        if (state === "out") {
+          return <AdminLogin idleLoggedOut={idleLoggedOut} onLoggedIn={() => { setIdleLoggedOut(false); setState("in"); }} />;
+        }
         return <AdminApp />;
       }
 
