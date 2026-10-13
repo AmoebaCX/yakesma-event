@@ -600,11 +600,11 @@
           const url = API_BASE + "/api/registrations/lookup?ticketCode=" +
             encodeURIComponent(ticketCode) + "&email=" + encodeURIComponent(email);
           const res = await fetch(url);
-          if (!res.ok) return { ok: false };
+          if (!res.ok) return { ok: false, status: res.status };
           const body = await res.json();
           return { ok: true, data: body };
         } catch (e) {
-          return { ok: false };
+          return { ok: false, status: 0 };
         }
       }
 
@@ -631,10 +631,10 @@
             encodeURIComponent(ticketCode) + "&t=" + encodeURIComponent(token);
           const res = await fetch(url);
           const body = await res.json().catch(() => ({}));
-          if (!res.ok) return { ok: false, error: body.error || "Pendaftaran tidak ditemukan." };
+          if (!res.ok) return { ok: false, status: res.status, error: body.error || "Pendaftaran tidak ditemukan." };
           return { ok: true, data: body };
         } catch (e) {
-          return { ok: false, error: "Tidak bisa terhubung ke server. Periksa koneksi internet Anda." };
+          return { ok: false, status: 0, error: "Tidak bisa terhubung ke server. Periksa koneksi internet Anda." };
         }
       }
 
@@ -803,6 +803,39 @@
           return () => window.removeEventListener("hashchange", on);
         }, []);
         return route;
+      }
+      /**
+       * Segarkan status pesanan SAAT peserta kembali ke halaman (tab/aplikasi dibuka lagi, mis. setelah
+       * membayar di aplikasi bank) dan berkala tiap 30 detik selama masih menunggu pembayaran — supaya
+       * status "Lunas" yang dikonfirmasi admin muncul tanpa harus memuat ulang halaman.
+       * refresh(onlyPending) dipanggil; ia sendiri yang menangani error (gagal = diam, coba lagi nanti).
+       */
+      function useLiveRefresh(refresh, poll) {
+        const latest = useRef(refresh);
+        latest.current = refresh;
+        useEffect(() => {
+          let last = 0;
+          const run = (fromTimer) => {
+            if (document.visibilityState !== "visible") return;
+            const now = Date.now();
+            if (now - last < 3000) return; // focus + visibilitychange biasanya datang bersamaan
+            last = now;
+            latest.current(fromTimer === true);
+          };
+          const onShow = () => run(false);
+          document.addEventListener("visibilitychange", onShow);
+          window.addEventListener("focus", onShow);
+          window.addEventListener("pageshow", onShow);
+          window.addEventListener("online", onShow);
+          const timer = poll ? setInterval(() => run(true), 30000) : null;
+          return () => {
+            document.removeEventListener("visibilitychange", onShow);
+            window.removeEventListener("focus", onShow);
+            window.removeEventListener("pageshow", onShow);
+            window.removeEventListener("online", onShow);
+            if (timer) clearInterval(timer);
+          };
+        }, [!!poll]);
       }
       const navigate = (to) => { location.hash = to; };
       function Link({ to, className, children, ...rest }) {
@@ -1098,6 +1131,12 @@
         return body + qrisCrc16(body);
       }
       const hasQris = () => qrisValid(SITE.qris);
+      /**
+       * QRIS hanya ditampilkan untuk pesanan yang SERVER beri kode unik. Keputusan ada di server, bukan di
+       * salinan pengaturan di browser — tab yang terbuka sejak sebelum QRIS dinonaktifkan masih menyimpan
+       * QRIS lama dan akan menampilkan QRIS tanpa kode unik (pembayaran jadi sulit dicocokkan).
+       */
+      const usesQris = (reg) => hasQris() && Number(reg && reg.uniqueCode) > 0;
 
       const QR_SRC = "https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js";
       function loadQrLib() {
@@ -1225,7 +1264,28 @@
 
       function PaymentInfo({ reg, proof, onClaimed }) {
         const code = reg.code, total = reg.total;
-        if (hasQris()) return <QrisPayment reg={reg} proof={proof || { email: reg.email }} onClaimed={onClaimed} />;
+        if (usesQris(reg)) return <QrisPayment reg={reg} proof={proof || { email: reg.email }} onClaimed={onClaimed} />;
+        // Peserta sudah menekan "Saya sudah bayar" (saat pembayaran QRIS) — jangan suruh membayar lagi.
+        if (reg.paymentClaimedAt) {
+          return (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-sm">
+                <p className="font-bold text-brand-dark">✓ Pembayaran Anda sedang diverifikasi</p>
+                <p className="mt-1 text-ink/70">
+                  Tim kami mencocokkan pembayaran Anda. Status di halaman ini berubah menjadi <b>Lunas</b> setelah dikonfirmasi, dan
+                  konfirmasinya juga dikirim lewat email. <b>Tidak perlu membayar lagi.</b>
+                </p>
+              </div>
+              {SITE.whatsapp && (
+                <a href={"https://wa.me/" + SITE.whatsapp + "?text=" + encodeURIComponent("Halo YAKESMA, saya sudah membayar. Mohon dicek.\nKode tiket: " + code + "\nTotal: " + formatRupiah(total))}
+                  target="_blank" rel="noopener noreferrer"
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-brand px-4 py-3 text-sm font-bold text-brand transition hover:bg-brand-50">
+                  <IconWhatsApp className="size-4" />Kirim bukti bayar via WhatsApp
+                </a>
+              )}
+            </div>
+          );
+        }
         return (
           <div className="space-y-3">
             {SITE.whatsapp && (
@@ -1300,7 +1360,7 @@
             <div className={(pending || cancelled) ? "bg-gold/10 px-5 py-5 text-center" : "bg-brand-50 px-5 py-5 text-center"}>
               <IconCheckCircle className={(pending || cancelled) ? "mx-auto size-12 text-orange" : "mx-auto size-12 text-brand"} />
               <h3 className="mt-2 text-lg font-extrabold text-brand-dark">
-                {cancelled ? "Pesanan Dibatalkan" : free ? "Pendaftaran Berhasil!" : pending ? (hasQris() && !reg.paymentClaimedAt ? "Selesaikan Pembayaran" : "Menunggu Konfirmasi Pembayaran") : "Pesanan Diterima!"}
+                {cancelled ? "Pesanan Dibatalkan" : free ? "Pendaftaran Berhasil!" : pending ? (usesQris(reg) && !reg.paymentClaimedAt ? "Selesaikan Pembayaran" : "Menunggu Konfirmasi Pembayaran") : "Pesanan Diterima!"}
               </h3>
               <p className="mt-1 text-sm text-ink/60">
                 {cancelled ? "Sudah transfer? Hubungi CS kami lewat WhatsApp. Anda juga bisa mendaftar ulang kapan saja." : "Tunjukkan kode ini saat registrasi ulang."}
@@ -1668,6 +1728,26 @@
             setAlready((prev) => (prev ? Object.assign({}, prev, patch) : prev));
           });
         }, [event.slug]);
+
+        // Pesanan yang sedang tampil (baru didaftarkan = done, atau sudah terdaftar = already): perbarui
+        // statusnya saat peserta kembali ke halaman ini / berkala selama masih menunggu pembayaran.
+        const watched = done || already;
+        const watchedGone = useRef(false);
+        function refreshWatched() {
+          if (!watched || !watched.code || !watched.email || watchedGone.current) return;
+          apiLookupStatus(watched.code, watched.email).then((res) => {
+            if (!res.ok) { if (res.status === 404) watchedGone.current = true; return; }
+            if (!res.data.paymentStatus) return;
+            const cur = getRegistrations().find((x) => x.id === watched.id) || watched;
+            const patch = serverPatch(cur, res.data);
+            if (!patch) return;
+            updateRegistrationInCache(watched.id, patch);
+            if (done) setDone((d) => (d ? Object.assign({}, d, patch) : d));
+            else if (res.data.paymentStatus === "cancelled") setAlready(null);
+            else setAlready((prev) => (prev ? Object.assign({}, prev, patch) : prev));
+          });
+        }
+        useLiveRefresh(refreshWatched, !!watched && watched.paymentStatus === "pending_transfer");
 
         // Satu ukuran jersey per peserta — panjang shirtSizes ikut jumlah tiket,
         // isi yang sudah dipilih dipertahankan saat jumlah berubah.
@@ -2189,22 +2269,26 @@
 
       function EventSaya() {
         const [regs, setRegs] = useState([]);
-        useEffect(() => {
-          const cached = getRegistrations();
-          setRegs(cached);
-          // Segarkan status pembayaran tiap pendaftaran dari server (mis. admin
-          // sudah menandai lunas) — sebaik mungkin, diam-diam gagal jika offline.
-          cached.forEach((r) => {
-            if (!r.code || !r.email) return;
+        const notFound = useRef({}); // kode yang sudah pasti tidak ada di server — jangan dicek berulang
+        // Segarkan status pembayaran tiap pendaftaran dari server (mis. admin sudah menandai lunas) —
+        // sebaik mungkin, diam-diam gagal jika offline.
+        function refreshAll(onlyPending) {
+          getRegistrations().forEach((r) => {
+            if (!r.code || !r.email || notFound.current[r.code]) return;
+            if (onlyPending && r.paymentStatus !== "pending_transfer") return;
             apiLookupStatus(r.code, r.email).then((res) => {
-              if (!res.ok || !res.data.paymentStatus) return;
-              const patch = serverPatch(r, res.data);
+              if (!res.ok) { if (res.status === 404) notFound.current[r.code] = true; return; }
+              if (!res.data.paymentStatus) return;
+              const cur = getRegistrations().find((x) => x.id === r.id) || r;
+              const patch = serverPatch(cur, res.data);
               if (!patch) return;
               updateRegistrationInCache(r.id, patch);
               setRegs(getRegistrations());
             });
           });
-        }, []);
+        }
+        useEffect(() => { setRegs(getRegistrations()); refreshAll(false); }, []);
+        useLiveRefresh(refreshAll, regs.some((r) => r.paymentStatus === "pending_transfer"));
         function sembunyikan(id) { removeRegistration(id); setRegs(getRegistrations()); }
         return (
           <Container className="space-y-6">
@@ -3342,6 +3426,23 @@
           });
           return () => { alive = false; };
         }, [code, proof && (proof.token || proof.email)]);
+
+        // Muat ulang status saat peserta kembali ke halaman ini / berkala selama masih menunggu pembayaran.
+        const gone = useRef(false);
+        function refreshBayar() {
+          if (!proof || gone.current) return;
+          const req = proof.token ? apiLookupByToken(code, proof.token) : apiLookupStatus(code, proof.email);
+          req.then((res) => {
+            if (!res.ok) { if (res.status === 404) gone.current = true; return; }
+            setData(res.data);
+            if (local) {
+              const cur = getRegistrations().find((x) => x.id === local.id) || local;
+              const patch = serverPatch(cur, res.data);
+              if (patch) updateRegistrationInCache(local.id, patch);
+            }
+          });
+        }
+        useLiveRefresh(refreshBayar, !!data && data.paymentStatus === "pending_transfer");
 
         function cariDenganEmail(e) {
           e.preventDefault();
