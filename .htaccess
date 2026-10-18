@@ -1,0 +1,22 @@
+# Pengerasan keamanan (audit 2026-10-17) — untuk LiteSpeed/Apache di cPanel.
+# Unggah ke folder root KEDUA subdomain (runforcharity & yakesma-event).
+# Jika folder sudah punya .htaccess, SALIN blok di bawah ke bagian paling atas
+# file yang ada — jangan menimpa baris lain (mis. pengaturan PHP dari cPanel).
+
+# 1) Paksa HTTPS: semua akses http:// dialihkan permanen ke https://
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteCond %{HTTPS} off
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# 2) Header keamanan
+<IfModule mod_headers.c>
+  # Browser hanya memakai HTTPS selama 1 tahun (diabaikan bila diakses via http).
+  Header always set Strict-Transport-Security "max-age=31536000"
+  Header always set X-Content-Type-Options "nosniff"
+  # Halaman tak boleh dibingkai (iframe) oleh situs lain — mencegah clickjacking.
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Content-Security-Policy "frame-ancestors 'self'"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>

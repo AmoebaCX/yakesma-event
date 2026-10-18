@@ -18,9 +18,9 @@
     </script>
 
     <!-- React + Babel + Tailwind (semua via CDN — tanpa build, tanpa native tooling) -->
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script crossorigin="anonymous" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"></script>
+    <script crossorigin="anonymous" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"></script>
+    <script crossorigin="anonymous" src="https://unpkg.com/@babel/standalone@8.0.7/babel.min.js" integrity="sha384-oO1UkcqdSTjrtWIjKpx1K6eE5I0WAXPWoezFn46CIHNoN6+CGVMK+GNSaDdkJ+u5"></script>
     <script>
       // Paksa classic runtime → JSX dikompilasi ke React.createElement
       // (bukan `import { jsx } from "react/jsx-runtime"` yang gagal di script non-module).
@@ -28,7 +28,7 @@
         presets: [[Babel.availablePresets.react, { runtime: "classic" }]],
       });
     </script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1143,7 +1143,7 @@
         if (window.qrcode) return Promise.resolve(window.qrcode);
         return new Promise((resolve, reject) => {
           const s = document.createElement("script");
-          s.src = QR_SRC; s.async = true;
+          s.src = QR_SRC; s.async = true; s.crossOrigin = "anonymous"; s.integrity = "sha384-mZT2gIty7ZDdOGkxfP6joZcYdMW1Jvj9dRlfpTmaJAKKXTqzygtB22k7FLe+KZC1";
           s.onload = () => (window.qrcode ? resolve(window.qrcode) : reject(new Error("QR tidak termuat")));
           s.onerror = () => reject(new Error("QR gagal dimuat"));
           document.head.appendChild(s);
@@ -2652,7 +2652,7 @@
         if (window.jspdf) return Promise.resolve(window.jspdf.jsPDF);
         return new Promise((resolve, reject) => {
           const s = document.createElement("script");
-          s.src = JSPDF_SRC; s.async = true;
+          s.src = JSPDF_SRC; s.async = true; s.crossOrigin = "anonymous"; s.integrity = "sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk";
           s.onload = () => (window.jspdf ? resolve(window.jspdf.jsPDF) : reject(new Error("jsPDF tidak termuat")));
           s.onerror = () => reject(new Error("jsPDF gagal dimuat"));
           document.head.appendChild(s);
