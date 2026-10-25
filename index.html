@@ -1637,10 +1637,12 @@
       }
 
       const DONATION_PRESETS = [25000, 50000, 100000, 250000];
-      function DonationField({ label, amount, setAmount }) {
+      // Judul bawaan untuk event yang belum mengisi "Judul Bagian Donasi" di admin.
+      const DEFAULT_DONATION_TITLE = "Donasi Pohon Tambahan (Opsional)";
+      function DonationField({ title, label, amount, setAmount }) {
         return (
           <div className="space-y-2.5 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
-            <p className="text-sm font-bold text-brand-dark">Donasi Pohon Tambahan (Opsional)</p>
+            <p className="text-sm font-bold text-brand-dark">{(title && title.trim()) || DEFAULT_DONATION_TITLE}</p>
             {label && <p className="text-xs text-ink/60">{label}</p>}
             <div className="flex flex-wrap gap-2">
               {DONATION_PRESETS.map((p) => (
@@ -1896,7 +1898,9 @@
           );
 
         const todayIso = todayIsoWIB();
-        if (event.registrationStart && todayIso < event.registrationStart) {
+        // Pre-launch: pendaftaran sudah dibuka sebelum tanggal "Pendaftaran Dibuka"; tetap ditutup sesuai tanggal tutup.
+        const preLaunchActive = !!event.preLaunch && !!event.registrationStart && todayIso < event.registrationStart;
+        if (event.registrationStart && todayIso < event.registrationStart && !event.preLaunch) {
           return (
             <div className="space-y-2 rounded-2xl border border-brand-100 bg-white p-5 text-center shadow-sm">
               <IconCalendar className="mx-auto size-8 text-ink/30" />
@@ -1917,6 +1921,11 @@
 
         return (
           <form onSubmit={handleSubmit} className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+            {preLaunchActive && (
+              <p className="mb-4 rounded-xl bg-gold/20 px-3 py-2 text-xs font-semibold text-brand-dark">
+                🚀 Pre-launch — Anda bisa mendaftar lebih awal. Pendaftaran resmi dibuka {formatTanggalPendek(event.registrationStart)}.
+              </p>
+            )}
             {hasPkgs ? (
               <PackagePicker packages={visiblePkgs} value={pkgId} onChange={setPkgId} />
             ) : (
@@ -1938,7 +1947,7 @@
                 </div>
               </div>
               {donationEnabled && (
-                <DonationField label={event.donationLabel} amount={donation} setAmount={setDonation} />
+                <DonationField title={event.donationTitle} label={event.donationLabel} amount={donation} setAmount={setDonation} />
               )}
             </div>
             {(!free || donationEnabled) && (

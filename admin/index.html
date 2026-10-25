@@ -91,7 +91,7 @@
           gradient: ["#28a840", "#185838"], emoji: "🕌", imageSquare: "", imageWide: "", sizeChartImage: "", gallery: [],
           excerpt: "", about: [""], benefits: [""], featured: false,
           requiresShipping: false,
-          donationEnabled: false, donationLabel: "",
+          donationEnabled: false, donationLabel: "", donationTitle: "", preLaunch: false,
           runSubmission: false, runMinKm: 5, submissionEnd: "", certificateTemplate: "", certificateLayout: null,
           packages: [],
         };
@@ -585,7 +585,11 @@
               </div>
               {ev.donationEnabled && (
                 <div className="sm:col-span-2">
-                  <Text label="Tujuan Donasi" value={ev.donationLabel} onChange={(v) => set("donationLabel", v)} placeholder="mis. Penanaman Pohon di Bali" />
+                  <Text label="Judul Bagian Donasi" value={ev.donationTitle} onChange={(v) => set("donationTitle", v)} placeholder="Donasi Pohon Tambahan (Opsional)"
+                    hint="Judul kotak donasi di form pendaftaran. Kosongkan untuk memakai judul bawaan." />
+                  <div className="mt-3">
+                    <Text label="Tujuan Donasi" value={ev.donationLabel} onChange={(v) => set("donationLabel", v)} placeholder="mis. Penanaman Pohon di Bali" />
+                  </div>
                 </div>
               )}
               <div className="sm:col-span-2 flex items-end pb-1">
@@ -619,6 +623,14 @@
                 <Text label="Pendaftaran Dibuka (opsional)" type="date" value={ev.registrationStart} onChange={(v) => set("registrationStart", v)}
                   hint="Kosongkan jika pendaftaran boleh kapan saja." />
                 <Text label="Pendaftaran Ditutup (opsional)" type="date" value={ev.registrationEnd} onChange={(v) => set("registrationEnd", v)} />
+              </div>
+              <div className="sm:col-span-2">
+                <Toggle label="Pre-launch: terima pendaftaran sebelum tanggal Pendaftaran Dibuka"
+                  checked={!!ev.preLaunch} onChange={(v) => set("preLaunch", v)} />
+                <p className="mt-1 text-xs text-ink/45">
+                  Jika aktif, peserta sudah bisa mendaftar sekarang; tanggal "Pendaftaran Dibuka" hanya tampil sebagai info peluncuran resmi.
+                  Pendaftaran tetap otomatis ditutup setelah tanggal "Pendaftaran Ditutup".
+                </p>
               </div>
               <PackagesEditor slug={ev.slug} packages={ev.packages} onChange={(arr) => set("packages", arr)} />
               <Num label="Harga (Rp)" value={ev.price} onChange={(v) => set("price", v)} hint={(ev.packages || []).some((p) => p.active) ? "Tidak dipakai — event ini memakai katalog paket." : "0 = Gratis"} />
