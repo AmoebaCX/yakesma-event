@@ -654,6 +654,46 @@
         }
       }
 
+      /* ============ AFFILIATE (link ?ref=KODE) ============
+         Kode dari link affiliate disimpan 30 hari di perangkat (link terakhir yang dibuka yang dipakai),
+         lalu terisi otomatis di form pendaftaran. Server yang memutuskan kodenya berlaku atau tidak. */
+      const REF_KEY = "yakesma_ref_v1";
+      const REF_TTL_MS = 30 * 24 * 3600 * 1000;
+      function normalizeRefCode(v) {
+        const c = String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20);
+        return c.length >= 3 ? c : "";
+      }
+      function captureAffiliateRef() {
+        try {
+          const m = location.search.match(/[?&]ref=([^&#]+)/) || location.hash.match(/[?&]ref=([^&#]+)/);
+          const code = m ? normalizeRefCode(decodeURIComponent(m[1])) : "";
+          if (code) localStorage.setItem(REF_KEY, JSON.stringify({ code: code, at: Date.now() }));
+        } catch (e) {}
+      }
+      function readAffiliateRef() {
+        try {
+          const v = JSON.parse(localStorage.getItem(REF_KEY) || "null");
+          return v && v.code && Date.now() - v.at < REF_TTL_MS ? normalizeRefCode(v.code) : "";
+        } catch (e) { return ""; }
+      }
+      async function apiCheckAffiliate(code, eventSlug) {
+        try {
+          const res = await fetch(API_BASE + "/api/affiliates/check?code=" + encodeURIComponent(code) + "&eventSlug=" + encodeURIComponent(eventSlug));
+          if (!res.ok) return null;
+          return await res.json();
+        } catch (e) { return null; }
+      }
+      async function apiAffiliateStats(code, token) {
+        try {
+          const res = await fetch(API_BASE + "/api/affiliates/stats?code=" + encodeURIComponent(code) + "&t=" + encodeURIComponent(token || ""));
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) return { ok: false, error: body.error || "Gagal memuat data." };
+          return { ok: true, data: body };
+        } catch (e) {
+          return { ok: false, error: "Tidak bisa terhubung ke server. Periksa koneksi internet Anda." };
+        }
+      }
+
       /* ============ AKUN PENGUNJUNG (daftar/masuk/keluar) ============ */
       const ACCOUNT_TOKEN_KEY = "yakesma_account_token_v1";
       function getAccountToken() { return localStorage.getItem(ACCOUNT_TOKEN_KEY); }
@@ -798,7 +838,7 @@
       function useRoute() {
         const [route, setRoute] = useState(parseHash());
         useEffect(() => {
-          const on = () => { setRoute(parseHash()); window.scrollTo(0, 0); };
+          const on = () => { captureAffiliateRef(); setRoute(parseHash()); window.scrollTo(0, 0); };
           window.addEventListener("hashchange", on);
           return () => window.removeEventListener("hashchange", on);
         }, []);
@@ -1686,6 +1726,21 @@
         const [submitting, setSubmitting] = useState(false);
         const [shipping, setShipping] = useState(emptyShipping);
         const [donation, setDonation] = useState(0);
+        const [refCode, setRefCode] = useState(readAffiliateRef);
+        const [refCheck, setRefCheck] = useState(null); // null | {status:"loading"|"ok"|"invalid", name}
+        useEffect(() => {
+          const code = normalizeRefCode(refCode);
+          if (!code) { setRefCheck(null); return; }
+          let stale = false;
+          setRefCheck({ status: "loading" });
+          const t = setTimeout(() => {
+            apiCheckAffiliate(code, event.slug).then((r) => {
+              if (stale) return;
+              setRefCheck(r && r.valid ? { status: "ok", name: r.name } : r ? { status: "invalid" } : null);
+            });
+          }, 400);
+          return () => { stale = true; clearTimeout(t); };
+        }, [refCode, event.slug]);
         const needsShipping = hasPkgs ? !!pkg && (pkg.medal || pkg.jersey) : !!event.requiresShipping;
         const needsSizes = hasPkgs ? !!pkg && pkg.jersey : needsShipping;
         const donationEnabled = !!event.donationEnabled;
@@ -1817,6 +1872,7 @@
             metaEventId: eventId,
             metaFbp: readCookie("_fbp"),
             metaFbc: readCookie("_fbc"),
+            affiliateCode: normalizeRefCode(refCode) || undefined,
           });
           setSubmitting(false);
           if (!result.ok) { setError(result.error); return; }
@@ -1949,6 +2005,14 @@
               {donationEnabled && (
                 <DonationField title={event.donationTitle} label={event.donationLabel} amount={donation} setAmount={setDonation} />
               )}
+              <div>
+                <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kode Affiliate <span className="font-normal text-ink/45">(opsional)</span></label>
+                <input value={refCode} onChange={(e) => setRefCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20))}
+                  placeholder="Dari komunitas/teman yang mengajak Anda" autoCapitalize="characters"
+                  className="w-full rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 font-mono text-sm uppercase outline-none transition placeholder:font-sans placeholder:normal-case focus:border-brand focus:ring-2 focus:ring-brand/20" />
+                {refCheck && refCheck.status === "ok" && <p className="mt-1 text-xs font-semibold text-brand-700">✓ Direferensikan oleh {refCheck.name}</p>}
+                {refCheck && refCheck.status === "invalid" && <p className="mt-1 text-xs text-orange">Kode tidak dikenal untuk event ini — pendaftaran tetap bisa dilanjutkan tanpa kode.</p>}
+              </div>
             </div>
             {(!free || donationEnabled) && (
               <div className="mt-4 space-y-1.5 border-t border-brand-50 pt-4">
@@ -3533,6 +3597,122 @@
         );
       }
 
+      /* ============ HALAMAN AFFILIATE (#/affiliate/<kode>?t=<token>) — link pribadi dari panitia ============ */
+      const AFF_STATUS = { paid: "Lunas", free: "Terdaftar (gratis)", pending_transfer: "Menunggu bayar", cancelled: "Batal" };
+      function AffiliatePage({ code, token }) {
+        const [data, setData] = useState(null);
+        const [error, setError] = useState("");
+        const [copied, setCopied] = useState("");
+
+        function load() {
+          apiAffiliateStats(code, token).then((res) => {
+            if (!res.ok) { setError(res.error); return; }
+            setError(""); setData(res.data);
+          });
+        }
+        useEffect(() => { load(); }, [code, token]);
+        useLiveRefresh(load, false);
+
+        async function share(link) {
+          const text = "Yuk ikut " + link.title + "! Daftar lewat link ini:";
+          if (navigator.share) {
+            try { await navigator.share({ title: link.title, text: text, url: link.url }); } catch (e) {}
+            return;
+          }
+          try {
+            await navigator.clipboard.writeText(link.url);
+            setCopied(link.eventSlug);
+            setTimeout(() => setCopied(""), 2000);
+          } catch (e) {
+            try { window.prompt("Salin link ini:", link.url); } catch (e2) {}
+          }
+        }
+
+        const st = data && data.stats;
+        return (
+          <Container>
+           <div className="mx-auto max-w-xl space-y-5">
+            <header>
+              <h1 className="text-2xl font-extrabold text-brand-dark sm:text-3xl">{data ? data.name : "Affiliate"}</h1>
+              <p className="mt-1 text-sm text-ink/60">Kode affiliate <span className="font-mono font-bold text-brand-dark">{code}</span></p>
+            </header>
+
+            {!data && !error && <p className="text-sm text-ink/60">Memuat data…</p>}
+            {error && (
+              <div className="rounded-2xl border border-orange/30 bg-orange/5 p-5 text-sm font-semibold text-brand-dark">{error}</div>
+            )}
+
+            {data && (
+              <React.Fragment>
+                {!data.active && (
+                  <p className="rounded-xl bg-ink/5 px-3 py-2 text-xs font-semibold text-ink/60">Kode ini sedang nonaktif — pendaftar baru tidak lagi tercatat atas nama Anda.</p>
+                )}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl border border-brand-100 bg-white p-4 shadow-sm">
+                    <p className="text-xs font-semibold text-ink/50">Peserta terdaftar</p>
+                    <p className="mt-1 text-2xl font-extrabold text-brand-dark">{st.participants}</p>
+                    <p className="text-[11px] text-ink/45">{st.registrations} pesanan aktif</p>
+                  </div>
+                  <div className="rounded-2xl border border-brand-100 bg-white p-4 shadow-sm">
+                    <p className="text-xs font-semibold text-ink/50">Peserta lunas</p>
+                    <p className="mt-1 text-2xl font-extrabold text-brand">{st.confirmedParticipants}</p>
+                    <p className="text-[11px] text-ink/45">{st.pendingParticipants} menunggu bayar</p>
+                  </div>
+                  {data.commissionType === "fixed" && (
+                    <div className="col-span-2 rounded-2xl border border-brand-200 bg-brand-50 p-4">
+                      <p className="text-xs font-semibold text-ink/55">Perkiraan komisi</p>
+                      <p className="mt-1 text-2xl font-extrabold text-brand-dark">{formatRupiah(st.commission)}</p>
+                      <p className="text-[11px] text-ink/55">{formatRupiah(data.commissionAmount)} × {st.paidParticipants} peserta lunas. Pembayaran komisi dilakukan oleh panitia.</p>
+                    </div>
+                  )}
+                </div>
+
+                {data.links.length > 0 && (
+                  <div className="space-y-2 rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+                    <h2 className="font-bold text-brand-dark">Link untuk dibagikan</h2>
+                    <p className="text-xs text-ink/55">Pendaftar yang membuka link ini otomatis tercatat atas kode Anda (berlaku 30 hari di perangkatnya). Mereka juga bisa mengetik kode <span className="font-mono font-bold">{data.code}</span> di form pendaftaran.</p>
+                    {data.links.map((l) => (
+                      <div key={l.eventSlug} className="flex items-center justify-between gap-3 border-t border-brand-50 pt-2">
+                        <p className="min-w-0 truncate text-sm font-semibold text-ink/80">{l.title}</p>
+                        <button type="button" onClick={() => share(l)}
+                          className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-brand-100 px-3 py-1.5 text-xs font-semibold text-brand-dark hover:border-brand hover:bg-brand-50">
+                          {copied === l.eventSlug ? <IconCheck className="size-4 text-brand" strokeWidth={2.6} /> : <IconShare className="size-4" />}
+                          {copied === l.eventSlug ? "Tersalin!" : "Bagikan"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+                  <h2 className="font-bold text-brand-dark">Pendaftar <span className="text-ink/40">({data.totalItems})</span></h2>
+                  {data.items.length === 0 ? (
+                    <p className="mt-2 text-sm text-ink/55">Belum ada pendaftar lewat kode Anda.</p>
+                  ) : (
+                    <ul className="mt-2 divide-y divide-brand-50">
+                      {data.items.map((it, i) => (
+                        <li key={i} className="flex items-start justify-between gap-3 py-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-ink/85">{it.name} <span className="font-normal text-ink/45">· {it.quantity} peserta</span></p>
+                            <p className="truncate text-xs text-ink/50">{it.eventTitle}{it.packageName ? " – " + it.packageName : ""} · {new Date(it.createdAt).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Jakarta" })}</p>
+                          </div>
+                          <span className={"shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold " + (it.paymentStatus === "paid" || it.paymentStatus === "free" ? "bg-brand text-white" : it.paymentStatus === "cancelled" ? "bg-ink/10 text-ink/50" : "bg-gold/20 text-orange")}>
+                            {AFF_STATUS[it.paymentStatus] || it.paymentStatus}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {data.totalItems > data.items.length && <p className="mt-2 text-xs text-ink/45">Menampilkan {data.items.length} pendaftar terbaru.</p>}
+                </div>
+                <p className="text-center text-xs text-ink/40">Simpan link halaman ini — jangan dibagikan ke orang lain.</p>
+              </React.Fragment>
+            )}
+           </div>
+          </Container>
+        );
+      }
+
       /* ============================ APP ============================ */
       const TITLES = { "/": null, "/event": "Event", "/event-saya": "Event Saya", "/akun": "Akun" };
       function App() {
@@ -3545,6 +3725,7 @@
         else if (route.path === "/event-saya") { page = <EventSaya />; title = "Event Saya"; }
         else if (route.path === "/akun") { page = <Akun />; title = "Akun"; }
         else if (route.path === "/setor-lari") { page = <SetorLari />; title = "Setor Lari"; }
+        else if (seg[0] === "affiliate" && seg[1]) { page = <AffiliatePage code={normalizeRefCode(decodeURIComponent(seg[1]))} token={route.params.get("t")} />; title = "Affiliate"; }
         else if (seg[0] === "bayar" && seg[1]) { page = <BayarPage code={decodeURIComponent(seg[1]).toUpperCase()} token={route.params.get("t")} />; title = "Pembayaran"; }
         else { page = <NotFound />; title = "Halaman tidak ditemukan"; }
 
@@ -3647,6 +3828,7 @@
          dengan data terkini. Kalau API gagal total, situs tetap tampil apa
          adanya (fallback), bukan kosong/rusak. */
       (async function boot() {
+        captureAffiliateRef();
         const root = ReactDOM.createRoot(document.getElementById("root"));
 
         let resolved = null;

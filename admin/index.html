@@ -984,11 +984,12 @@
         return <span className={"rounded-full px-2.5 py-1 text-[11px] font-bold " + s.cls}>{s.text}</span>;
       }
 
-      function PendaftaranPanel() {
+      function PendaftaranPanel({ initialAffiliate }) {
         const [items, setItems] = useState([]);
         const [total, setTotal] = useState(0);
         const [q, setQ] = useState("");
         const [status, setStatus] = useState("");
+        const [affiliate, setAffiliate] = useState(initialAffiliate || "");
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState("");
         const [busyId, setBusyId] = useState(null);
@@ -1003,6 +1004,7 @@
           const params = new URLSearchParams();
           if (q) params.set("q", q);
           if (status) params.set("status", status);
+          if (affiliate) params.set("affiliate", affiliate);
           params.set("page", String(p));
           params.set("pageSize", String(PAGE_SIZE));
           setPage(p);
@@ -1027,9 +1029,23 @@
           load();
         }
 
+        async function aturAffiliate(r) {
+          const v = prompt("Kode affiliate untuk " + r.ticket_code + " (kosongkan untuk melepas):", r.affiliate_code || "");
+          if (v === null) return;
+          setBusyId(r.id);
+          const res = await apiFetch("/api/registrations/" + r.id, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ affiliateCode: v.trim() ? v.trim().toUpperCase() : null }),
+          });
+          setBusyId(null);
+          if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.error || "Gagal menyimpan affiliate."); return; }
+          load();
+        }
+
         async function ekspor() {
           const params = new URLSearchParams();
           if (status) params.set("status", status);
+          if (affiliate) params.set("affiliate", affiliate);
           const res = await apiFetch("/api/registrations/export?" + params.toString());
           if (!res.ok) { alert("Gagal mengekspor."); return; }
           const text = await res.text();
@@ -1056,6 +1072,8 @@
                 <option value="paid">Lunas</option>
                 <option value="cancelled">Dibatalkan</option>
               </select>
+              <input value={affiliate} onChange={(e) => setAffiliate(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} onKeyDown={(e) => e.key === "Enter" && load(1)}
+                placeholder="Kode affiliate" className={inputCls + " max-w-[150px] font-mono"} />
               <button onClick={() => load(1)} className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">Cari</button>
             </div>
 
@@ -1111,7 +1129,13 @@
                               {formatRupiah(r.total_amount)}
                               {uniqueCode > 0 && <p className="text-[10px] font-normal text-ink/45">kode unik {uniqueCode}</p>}
                             </td>
-                            <td className="px-3 py-2 font-mono text-xs">{r.ticket_code}</td>
+                            <td className="px-3 py-2 font-mono text-xs">
+                              {r.ticket_code}
+                              <button disabled={busyId === r.id} onClick={() => aturAffiliate(r)} title="Atur kode affiliate"
+                                className={"mt-1 block rounded px-1.5 py-0.5 text-[10px] font-bold " + (r.affiliate_code ? "bg-brand-50 text-brand-700" : "text-ink/30 hover:text-brand-700")}>
+                                🤝 {r.affiliate_code || "affiliate"}
+                              </button>
+                            </td>
                             <td className="px-3 py-2">
                               <RegStatusBadge status={r.payment_status} />
                               {r.payment_status === "paid" && r.confirmed_by && (
@@ -1190,6 +1214,197 @@
                 <span className="text-ink/55">Halaman {page} dari {pageCount} · {total} pendaftaran</span>
                 <button disabled={page >= pageCount} onClick={() => load(page + 1)}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 font-semibold text-ink/70 hover:bg-slate-50 disabled:opacity-40">Berikutnya ›</button>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      /* ============ AFFILIATE (pembawa peserta: komunitas/ambassador) ============ */
+      const emptyAffiliate = { code: "", name: "", phone: "", eventSlug: "", commissionType: "none", commissionAmount: 0, notes: "" };
+      function affiliateReward(a) {
+        return a.commission_type === "fixed" ? formatRupiah(a.commission_amount) + " / peserta lunas" : "Hanya pelacakan";
+      }
+      function AffiliateForm({ initial, events, onSaved, onCancel }) {
+        const editing = !!initial.id;
+        const [f, setF] = useState(editing ? {
+          code: initial.code, name: initial.name, phone: initial.phone || "", eventSlug: initial.event_slug || "",
+          commissionType: initial.commission_type, commissionAmount: initial.commission_amount, notes: initial.notes || "",
+        } : emptyAffiliate);
+        const [saving, setSaving] = useState(false);
+        const [error, setError] = useState("");
+        const set = (k) => (v) => setF((x) => Object.assign({}, x, { [k]: v }));
+
+        async function save(e) {
+          e.preventDefault();
+          setSaving(true); setError("");
+          const payload = { name: f.name, phone: f.phone, eventSlug: f.eventSlug, commissionType: f.commissionType,
+            commissionAmount: f.commissionType === "fixed" ? f.commissionAmount : 0, notes: f.notes };
+          const res = editing
+            ? await apiFetch("/api/admin/affiliates/" + initial.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+            : await apiFetch("/api/admin/affiliates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({ code: f.code }, payload)) });
+          const body = await res.json().catch(() => ({}));
+          setSaving(false);
+          if (!res.ok) { setError(body.error || "Gagal menyimpan."); return; }
+          onSaved(body);
+        }
+
+        return (
+          <form onSubmit={save} className="space-y-3 rounded-xl border border-brand-100 bg-white p-4">
+            <h3 className="font-bold text-brand-dark">{editing ? "Ubah Affiliate " + initial.code : "Affiliate Baru"}</h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {editing ? (
+                <div><Label>Kode</Label><p className="py-2 font-mono text-sm font-bold">{initial.code}</p></div>
+              ) : (
+                <Text label="Kode" value={f.code} onChange={(v) => set("code")(v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20))}
+                  placeholder="mis. JICT atau RUNNERSBKS" hint="3–20 huruf/angka. Tidak bisa diubah setelah dibuat (tercetak di link)." />
+              )}
+              <Text label="Nama Affiliate" value={f.name} onChange={set("name")} placeholder="Nama komunitas / orang" />
+              <Text label="WhatsApp (opsional)" value={f.phone} onChange={(v) => set("phone")(v.replace(/\D/g, "").slice(0, 15))} placeholder="08xxxxxxxxxx" hint="Untuk tombol kirim link lewat WhatsApp." />
+              <div>
+                <Label>Berlaku untuk</Label>
+                <select className={inputCls} value={f.eventSlug} onChange={(e) => set("eventSlug")(e.target.value)}>
+                  <option value="">Semua event</option>
+                  {events.map((ev) => <option key={ev.slug} value={ev.slug}>{ev.title}</option>)}
+                </select>
+              </div>
+              <div>
+                <Label>Imbalan</Label>
+                <select className={inputCls} value={f.commissionType} onChange={(e) => set("commissionType")(e.target.value)}>
+                  <option value="none">Hanya pelacakan</option>
+                  <option value="fixed">Komisi nominal tetap</option>
+                </select>
+              </div>
+              {f.commissionType === "fixed" && (
+                <Num label="Komisi per peserta lunas (Rp)" value={f.commissionAmount} onChange={set("commissionAmount")}
+                  hint="Dihitung dari jumlah peserta berstatus Lunas — tidak dari donasi atau ongkir." />
+              )}
+            </div>
+            <Area label="Catatan internal (opsional)" value={f.notes} onChange={set("notes")} rows={2} />
+            {error && <p className="rounded-lg bg-orange/10 px-3 py-2 text-sm text-orange">{error}</p>}
+            <div className="flex gap-2">
+              <button type="submit" disabled={saving} className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-600 disabled:opacity-50">{saving ? "Menyimpan…" : "Simpan"}</button>
+              <button type="button" onClick={onCancel} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-ink/70 hover:bg-slate-50">Batal</button>
+            </div>
+          </form>
+        );
+      }
+
+      function AffiliatePanel({ events, onShowRegistrations }) {
+        const [items, setItems] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState("");
+        const [editing, setEditing] = useState(null); // null | "new" | row
+        const [busyId, setBusyId] = useState(null);
+        const [copiedId, setCopiedId] = useState(null);
+        const eventTitle = (slug) => { const ev = events.find((e) => e.slug === slug); return ev ? ev.title : slug; };
+
+        async function load() {
+          setLoading(true); setError("");
+          const res = await apiFetch("/api/admin/affiliates");
+          if (res.status === 401) { location.reload(); return; }
+          const body = await res.json().catch(() => ({}));
+          setLoading(false);
+          if (!res.ok) { setError(body.error || "Gagal memuat data."); return; }
+          setItems(body.items || []);
+        }
+        useEffect(() => { load(); }, []);
+
+        async function patch(a, payload, confirmText) {
+          if (confirmText && !confirm(confirmText)) return;
+          setBusyId(a.id);
+          const res = await apiFetch("/api/admin/affiliates/" + a.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+          const body = await res.json().catch(() => ({}));
+          setBusyId(null);
+          if (!res.ok) { alert(body.error || "Gagal menyimpan."); return; }
+          setItems((list) => list.map((x) => (x.id === a.id ? body : x)));
+        }
+
+        async function copyLink(a) {
+          try { await navigator.clipboard.writeText(a.dashboardUrl); setCopiedId(a.id); setTimeout(() => setCopiedId(null), 2000); }
+          catch (e) { prompt("Salin link halaman affiliate:", a.dashboardUrl); }
+        }
+        function waLink(a) {
+          const phone = (a.phone || "").replace(/^0/, "62");
+          const text = "Assalamu'alaikum " + a.name + ",\n\nTerima kasih sudah bersedia menjadi affiliate event LAZNAS YAKESMA. Kode affiliate Anda: " + a.code +
+            "\n\nBuka halaman berikut untuk mengambil link pendaftaran yang bisa dibagikan dan memantau jumlah pendaftar:\n" + a.dashboardUrl +
+            "\n\nMohon link halaman ini tidak dibagikan ke orang lain.";
+          return "https://wa.me/" + phone + "?text=" + encodeURIComponent(text);
+        }
+
+        function ekspor() {
+          const head = ["Kode", "Nama", "WhatsApp", "Berlaku untuk", "Imbalan", "Nominal per peserta", "Pesanan aktif", "Peserta", "Peserta lunas", "Menunggu bayar", "Komisi", "Aktif"];
+          const rows = items.map((a) => [a.code, a.name, a.phone || "", a.event_slug ? eventTitle(a.event_slug) : "Semua event",
+            a.commission_type === "fixed" ? "Komisi tetap" : "Pelacakan", a.commission_amount, a.stats.registrations, a.stats.participants,
+            a.stats.paidParticipants, a.stats.pendingParticipants, a.stats.commission, a.active ? "Ya" : "Tidak"]);
+          const csv = "\uFEFF" + [head].concat(rows).map((r) => r.map(csvCell).join(",")).join("\n") + "\n";
+          download("affiliate-yakesma.csv", csv, "text/csv;charset=utf-8");
+        }
+
+        const totalCommission = items.reduce((sum, a) => sum + a.stats.commission, 0);
+        const totalParticipants = items.reduce((sum, a) => sum + a.stats.participants, 0);
+
+        return (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-extrabold text-brand-dark">Affiliate <span className="text-ink/40">({items.length})</span></h2>
+                <p className="text-xs text-ink/50">{totalParticipants} peserta lewat affiliate · total komisi {formatRupiah(totalCommission)}</p>
+              </div>
+              <div className="flex gap-2">
+                {items.length > 0 && <button onClick={ekspor} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Ekspor CSV</button>}
+                {!editing && <button onClick={() => setEditing("new")} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-600">+ Affiliate Baru</button>}
+              </div>
+            </div>
+
+            {editing && (
+              <AffiliateForm initial={editing === "new" ? {} : editing} events={events}
+                onCancel={() => setEditing(null)}
+                onSaved={(row) => {
+                  setItems((list) => (editing === "new" ? [row].concat(list) : list.map((x) => (x.id === row.id ? row : x))));
+                  setEditing(null);
+                }} />
+            )}
+
+            {error && <p className="rounded-lg bg-orange/10 px-3 py-2 text-sm text-orange">{error}</p>}
+            {loading ? (
+              <p className="py-8 text-center text-sm text-ink/40">Memuat…</p>
+            ) : items.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-ink/50">Belum ada affiliate. Buat kode untuk komunitas atau ambassador yang membawa peserta.</p>
+            ) : (
+              <div className="space-y-3">
+                {items.map((a) => (
+                  <div key={a.id} className={"rounded-xl border bg-white p-4 " + (a.active ? "border-slate-200" : "border-dashed border-slate-300 opacity-70")}>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-bold text-ink">
+                          {a.name} <span className="ml-1 rounded bg-brand-50 px-1.5 py-0.5 font-mono text-xs text-brand-700">{a.code}</span>
+                          {!a.active && <span className="ml-1 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-ink/50">Nonaktif</span>}
+                        </p>
+                        <p className="mt-0.5 text-xs text-ink/50">
+                          {a.event_slug ? eventTitle(a.event_slug) : "Semua event"} · {affiliateReward(a)}{a.phone ? " · " + a.phone : ""}
+                        </p>
+                        {a.notes && <p className="mt-0.5 text-xs italic text-ink/45">{a.notes}</p>}
+                      </div>
+                      <div className="flex gap-4 text-right text-xs">
+                        <div><p className="text-lg font-extrabold text-brand-dark">{a.stats.participants}</p><p className="text-ink/45">peserta</p></div>
+                        <div><p className="text-lg font-extrabold text-brand">{a.stats.paidParticipants}</p><p className="text-ink/45">lunas</p></div>
+                        <div><p className="text-lg font-extrabold text-orange">{a.stats.pendingParticipants}</p><p className="text-ink/45">menunggu</p></div>
+                        {a.commission_type === "fixed" && <div><p className="text-lg font-extrabold text-brand-dark">{formatRupiah(a.stats.commission)}</p><p className="text-ink/45">komisi</p></div>}
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                      <button onClick={() => copyLink(a)} className="rounded-lg border border-brand-100 px-2.5 py-1 text-xs font-semibold text-brand-dark hover:bg-brand-50">{copiedId === a.id ? "✓ Tersalin" : "🔗 Salin link halaman affiliate"}</button>
+                      {a.phone && <a href={waLink(a)} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-brand-100 px-2.5 py-1 text-xs font-semibold text-brand-dark hover:bg-brand-50">💬 Kirim via WhatsApp</a>}
+                      <button onClick={() => onShowRegistrations(a.code)} className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-ink/70 hover:bg-slate-50">Lihat pendaftar</button>
+                      <button onClick={() => setEditing(a)} className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-ink/70 hover:bg-slate-50">Ubah</button>
+                      <button disabled={busyId === a.id} onClick={() => patch(a, { active: !a.active }, a.active ? "Nonaktifkan " + a.code + "? Pendaftar baru tidak lagi tercatat atas kode ini (data lama tetap)." : null)}
+                        className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-ink/70 hover:bg-slate-50 disabled:opacity-50">{a.active ? "Nonaktifkan" : "Aktifkan"}</button>
+                      <button disabled={busyId === a.id} onClick={() => patch(a, { resetLink: true }, "Buat link halaman affiliate baru untuk " + a.code + "? Link lama langsung tidak berlaku. (Link pendaftaran ?ref= tetap berlaku.)")}
+                        className="rounded-lg border border-orange/40 px-2.5 py-1 text-xs font-semibold text-orange hover:bg-orange/10 disabled:opacity-50">Reset link</button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -1492,6 +1707,7 @@
         const [saveErrorMsg, setSaveErrorMsg] = useState("");
         const [saveErrorStatus, setSaveErrorStatus] = useState(null);
         const [tab, setTab] = useState("event");
+        const [regAffiliate, setRegAffiliate] = useState(""); // filter awal tab Pendaftaran dari tombol "Lihat pendaftar" affiliate
         const [editing, setEditing] = useState(null); // index | "new" | null
 
         const latestDataRef = useRef(null);
@@ -1599,7 +1815,7 @@
           setEditing(null);
         }
 
-        const tabs = [["event", "Event"], ["pendaftaran", "Pendaftaran"], ["hasil-lari", "Hasil Lari"], ["pengaturan", "Pengaturan"], ["pratinjau", "Pratinjau"]];
+        const tabs = [["event", "Event"], ["pendaftaran", "Pendaftaran"], ["affiliate", "Affiliate"], ["hasil-lari", "Hasil Lari"], ["pengaturan", "Pengaturan"], ["pratinjau", "Pratinjau"]];
         const badge = {
           idle: { text: "Tersinkron", cls: "text-ink/35" },
           pending: { text: "Menunggu disimpan…", cls: "text-ink/40" },
@@ -1636,7 +1852,7 @@
               {!editing && (
                 <div className="mx-auto flex max-w-4xl gap-1 overflow-x-auto px-4">
                   {tabs.map(([k, lbl]) => (
-                    <button key={k} onClick={() => setTab(k)} className={"shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition " + (tab === k ? "border-brand text-brand-dark" : "border-transparent text-ink/50 hover:text-ink")}>{lbl}</button>
+                    <button key={k} onClick={() => { if (k === "pendaftaran") setRegAffiliate(""); setTab(k); }} className={"shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition " + (tab === k ? "border-brand text-brand-dark" : "border-transparent text-ink/50 hover:text-ink")}>{lbl}</button>
                   ))}
                 </div>
               )}
@@ -1666,7 +1882,9 @@
               ) : tab === "event" ? (
                 <EventList data={data} setData={setData} onEdit={(i) => setEditing(i)} onNew={() => setEditing("new")} />
               ) : tab === "pendaftaran" ? (
-                <PendaftaranPanel />
+                <PendaftaranPanel key={regAffiliate} initialAffiliate={regAffiliate} />
+              ) : tab === "affiliate" ? (
+                <AffiliatePanel events={data.events} onShowRegistrations={(code) => { setRegAffiliate(code); setTab("pendaftaran"); }} />
               ) : tab === "hasil-lari" ? (
                 <HasilLariPanel events={data.events} />
               ) : tab === "pengaturan" ? (
