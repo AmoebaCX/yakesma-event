@@ -430,9 +430,15 @@
       /* ============ KATALOG PAKET ============ */
       const PUBLIC_SITE_URL = "https://runforcharity.morningflow.id";
       function emptyPackage() {
-        return { id: "", name: "", description: "", price: 0, medal: false, jersey: false, active: true, internal: false };
+        return { id: "", name: "", description: "", price: 0, medal: false, jersey: false, active: true, internal: false, mode: "" };
       }
-      function PackagesEditor({ slug, packages, onChange }) {
+      // Format event (sama dengan situs): online | offline | hybrid. Event lama hanya punya `online`.
+      function eventFormat(e) {
+        if (e.format === "online" || e.format === "offline" || e.format === "hybrid") return e.format;
+        return e.online ? "online" : "offline";
+      }
+      const FORMAT_LABEL = { offline: "Offline", online: "Online", hybrid: "Hybrid" };
+      function PackagesEditor({ slug, packages, onChange, hybrid }) {
         const list = packages || [];
         const [copied, setCopied] = useState("");
         function update(i, patch) { onChange(list.map((p, j) => (j === i ? Object.assign({}, p, patch) : p))); }
@@ -456,7 +462,9 @@
               <p className="text-sm font-bold text-brand-dark">Katalog Paket (opsional)</p>
               <p className="text-xs text-ink/55">
                 Kalau ada paket aktif, pendaftar memilih paket dan harga di bawah tidak dipakai. Paket dengan medali/jersey
-                otomatis meminta alamat & ongkir; ukuran jersey hanya diminta untuk paket berisi jersey.
+                berarti ada racepack: peserta online mengisi alamat & ongkir, peserta offline mengambil di RPC.
+                Ukuran jersey hanya diminta untuk paket berisi jersey.
+                {hybrid && " Event hybrid: paket bisa dikhususkan untuk peserta online atau offline saja."}
                 Paket <b>internal</b> tersembunyi dari publik, hanya bisa dipilih lewat link khususnya, dan tidak dikirim ke Meta Ads.
               </p>
             </div>
@@ -475,6 +483,14 @@
                     <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.jersey} onChange={(e) => update(i, { jersey: e.target.checked })} /> 👕 Jersey</label>
                     <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.active} onChange={(e) => update(i, { active: e.target.checked })} /> Aktif</label>
                     <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.internal} onChange={(e) => update(i, { internal: e.target.checked })} /> Internal / testing</label>
+                    {hybrid && (
+                      <select value={p.mode || ""} onChange={(e) => update(i, { mode: e.target.value })}
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-semibold">
+                        <option value="">Untuk online & offline</option>
+                        <option value="online">Khusus online</option>
+                        <option value="offline">Khusus offline</option>
+                      </select>
+                    )}
                     <span className="ml-auto flex items-center gap-1">
                       <button type="button" onClick={() => move(i, -1)} title="Naik" className="grid h-7 w-7 place-items-center rounded text-ink/50 hover:bg-slate-100">▲</button>
                       <button type="button" onClick={() => move(i, 1)} title="Turun" className="grid h-7 w-7 place-items-center rounded text-ink/50 hover:bg-slate-100">▼</button>
@@ -520,6 +536,13 @@
           e.price = Number(e.price) || 0;
           e.quota = Number(e.quota) || 0;
           e.registered = Number(e.registered) || 0;
+          e.format = eventFormat(e);
+          e.online = e.format === "online";
+          e.onlineQuota = e.format === "hybrid" ? Number(e.onlineQuota) || 0 : 0;
+          e.offlineQuota = e.format === "hybrid" ? Number(e.offlineQuota) || 0 : 0;
+          e.donationRequired = !!e.donationEnabled && !!e.donationRequired;
+          e.donationMin = e.donationRequired ? Number(e.donationMin) || 0 : 0;
+          if (e.donationRequired && e.donationMin < 1000) { alert("Isi minimal donasi (paling sedikit Rp1.000) untuk donasi wajib."); return; }
           e.about = (typeof e.about === "string" ? e.about.split("\n") : e.about).map((x) => x.trim()).filter(Boolean);
           e.benefits = (typeof e.benefits === "string" ? e.benefits.split("\n") : e.benefits).map((x) => x.trim()).filter(Boolean);
           if (!e.about.length) e.about = [""];
@@ -563,12 +586,42 @@
               <Text label="Pemateri (opsional)" value={ev.speaker} onChange={(v) => set("speaker", v)} placeholder="mis. Ustadz Ahmad Zaki" />
               <Text label="Nama Lokasi" value={ev.location} onChange={(v) => set("location", v)} placeholder="mis. Masjid Raya Bintaro / Online (Zoom)" />
               <Text label="Kota" value={ev.city} onChange={(v) => set("city", v)} placeholder="mis. Jakarta / Online" />
-              <div className="flex items-end pb-1"><Toggle label="Event online" checked={!!ev.online} onChange={(v) => set("online", v)} /></div>
+              <div>
+                <Label>Format Event</Label>
+                <select className={inputCls} value={eventFormat(ev)} onChange={(e) => setEv((p) => ({ ...p, format: e.target.value, online: e.target.value === "online" }))}>
+                  <option value="offline">Offline — peserta datang ke lokasi</option>
+                  <option value="online">Online — virtual, lari di mana saja</option>
+                  <option value="hybrid">Hybrid — peserta memilih offline atau online</option>
+                </select>
+              </div>
               <div className="flex items-end pb-1"><Toggle label="Tampilkan sebagai unggulan" checked={!!ev.featured} onChange={(v) => set("featured", v)} /></div>
               <div className="sm:col-span-2 flex items-end pb-1">
-                <Toggle label="Butuh info pengiriman (alamat, ukuran kaos, kurir) — mis. lari virtual"
+                <Toggle label="Ada racepack (jersey + medali) — online: dikirim ke alamat, offline: diambil di RPC"
                   checked={!!ev.requiresShipping} onChange={(v) => set("requiresShipping", v)} />
               </div>
+              {(ev.packages || []).some((p) => p.active) && (
+                <p className="sm:col-span-2 -mt-2 text-xs text-ink/45">Event ini memakai katalog paket — racepack ditentukan oleh medali/jersey di tiap paket, bukan oleh tombol di atas.</p>
+              )}
+              {eventFormat(ev) !== "online" && (ev.requiresShipping || (ev.packages || []).some((p) => p.active && (p.medal || p.jersey))) && (
+                <div className="sm:col-span-2 space-y-3 rounded-xl border border-brand-100 bg-brand-50/40 p-3">
+                  <div>
+                    <p className="text-sm font-bold text-brand-dark">RPC — Pengambilan Racepack Peserta Offline</p>
+                    <p className="text-xs text-ink/55">
+                      Ditampilkan di halaman event, form pendaftaran, tiket, dan email peserta offline.
+                      {eventFormat(ev) === "hybrid" && " Peserta online tetap mendapat racepack lewat pengiriman ke alamatnya."}
+                      {" "}Kalau dikosongkan, peserta melihat "lokasi & jadwal RPC akan diumumkan panitia".
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Text label="Lokasi RPC" value={ev.rpcLocation} onChange={(v) => set("rpcLocation", v)} placeholder="mis. Masjid Agung Al-Azhar, Aula Lt. 2" />
+                    <Text label="Jadwal RPC" value={ev.rpcSchedule} onChange={(v) => set("rpcSchedule", v)} placeholder="mis. Sabtu–Minggu, 15–16 Jan 2027, 10.00–20.00 WIB" />
+                    <div className="sm:col-span-2"><Text label="Alamat RPC" value={ev.rpcAddress} onChange={(v) => set("rpcAddress", v)} placeholder="Jl. Sisingamangaraja, Kebayoran Baru, Jakarta Selatan" /></div>
+                    <div className="sm:col-span-2"><Text label="Link Google Maps (opsional)" value={ev.rpcMapsUrl} onChange={(v) => set("rpcMapsUrl", v)} placeholder="https://maps.app.goo.gl/..." /></div>
+                    <div className="sm:col-span-2"><Area label="Catatan pengambilan (opsional)" value={ev.rpcNotes} onChange={(v) => set("rpcNotes", v)} rows={2}
+                      hint="mis. Tunjukkan kode tiket. Pengambilan diwakilkan wajib membawa screenshot tiket peserta." /></div>
+                  </div>
+                </div>
+              )}
               {ev.requiresShipping && (
                 <div className="sm:col-span-2">
                   <ImageUploadField
@@ -579,13 +632,28 @@
                   />
                 </div>
               )}
-              <div className="sm:col-span-2 flex items-end pb-1">
-                <Toggle label="Aktifkan donasi tambahan (opsional saat pendaftaran)"
-                  checked={!!ev.donationEnabled} onChange={(v) => set("donationEnabled", v)} />
+              <div className="sm:col-span-2">
+                <Label>Donasi saat pendaftaran</Label>
+                <select className={inputCls + " max-w-md"} value={!ev.donationEnabled ? "off" : ev.donationRequired ? "required" : "optional"}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setEv((p) => ({ ...p, donationEnabled: v !== "off", donationRequired: v === "required",
+                      donationMin: v === "required" && !(Number(p.donationMin) >= 1000) ? 25000 : p.donationMin }));
+                  }}>
+                  <option value="off">Tidak ada donasi</option>
+                  <option value="optional">Opsional — pendaftar boleh menambah donasi</option>
+                  <option value="required">Wajib — pendaftar harus berdonasi</option>
+                </select>
               </div>
+              {ev.donationEnabled && ev.donationRequired && (
+                <div className="sm:col-span-2 max-w-md">
+                  <Num label="Minimal donasi per pendaftaran (Rp)" value={ev.donationMin} onChange={(v) => set("donationMin", v)} min={1000}
+                    hint="Berlaku per pendaftaran (bukan per peserta). Tombol nominal di form dimulai dari angka ini." />
+                </div>
+              )}
               {ev.donationEnabled && (
                 <div className="sm:col-span-2">
-                  <Text label="Judul Bagian Donasi" value={ev.donationTitle} onChange={(v) => set("donationTitle", v)} placeholder="Donasi Pohon Tambahan (Opsional)"
+                  <Text label="Judul Bagian Donasi" value={ev.donationTitle} onChange={(v) => set("donationTitle", v)} placeholder={ev.donationRequired ? "Donasi" : "Donasi Pohon Tambahan (Opsional)"}
                     hint="Judul kotak donasi di form pendaftaran. Kosongkan untuk memakai judul bawaan." />
                   <div className="mt-3">
                     <Text label="Tujuan Donasi" value={ev.donationLabel} onChange={(v) => set("donationLabel", v)} placeholder="mis. Penanaman Pohon di Bali" />
@@ -632,13 +700,21 @@
                   Pendaftaran tetap otomatis ditutup setelah tanggal "Pendaftaran Ditutup".
                 </p>
               </div>
-              <PackagesEditor slug={ev.slug} packages={ev.packages} onChange={(arr) => set("packages", arr)} />
+              <PackagesEditor slug={ev.slug} packages={ev.packages} onChange={(arr) => set("packages", arr)} hybrid={eventFormat(ev) === "hybrid"} />
               <Num label="Harga (Rp)" value={ev.price} onChange={(v) => set("price", v)} hint={(ev.packages || []).some((p) => p.active) ? "Tidak dipakai — event ini memakai katalog paket." : "0 = Gratis"} />
               <div className="grid grid-cols-2 gap-3">
-                <Num label="Kuota" value={ev.quota} onChange={(v) => set("quota", v)} />
+                <Num label="Kuota" value={ev.quota} onChange={(v) => set("quota", v)} hint={eventFormat(ev) === "hybrid" ? "Kuota total online + offline." : undefined} />
                 <Num label="Peserta tambahan (manual)" value={ev.registered} onChange={(v) => set("registered", v)}
                   hint={"Terkonfirmasi otomatis (Lunas + Gratis): " + (ev.confirmedCount || 0) + ". Tampil di situs: " + ((ev.confirmedCount || 0) + (Number(ev.registered) || 0)) + " terisi."} />
               </div>
+              {eventFormat(ev) === "hybrid" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <Num label="Kuota offline (opsional)" value={ev.offlineQuota || 0} onChange={(v) => set("offlineQuota", v)}
+                    hint="Batas peserta offline (kapasitas lokasi). 0 = hanya ikut kuota total." />
+                  <Num label="Kuota online (opsional)" value={ev.onlineQuota || 0} onChange={(v) => set("onlineQuota", v)}
+                    hint="0 = hanya ikut kuota total." />
+                </div>
+              )}
               <div className="sm:col-span-2"><Area label="Ringkasan singkat" value={ev.excerpt} onChange={(v) => set("excerpt", v)} rows={2} hint="1 kalimat, muncul di kartu & detail." /></div>
               <div className="sm:col-span-2"><Area label="Deskripsi" value={aboutText} onChange={(v) => set("about", v)} rows={4} hint="Satu paragraf per baris." /></div>
               <div className="sm:col-span-2"><Area label="Yang Anda Dapatkan" value={benefitsText} onChange={(v) => set("benefits", v)} rows={3} hint="Satu poin per baris." /></div>
@@ -734,7 +810,7 @@
                       <p className="truncate font-bold text-ink">{e.title}</p>
                       {e.featured && <span className="rounded bg-gold/20 px-1.5 py-0.5 text-[10px] font-bold text-orange">unggulan</span>}
                     </div>
-                    <p className="truncate text-xs text-ink/55">{e.category} · {formatTanggal(e.date)} · {e.online ? "Online" : e.city} · {formatRupiah(e.price)}</p>
+                    <p className="truncate text-xs text-ink/55">{e.category} · {formatTanggal(e.date)} · {eventFormat(e) === "offline" ? e.city : FORMAT_LABEL[eventFormat(e)]} · {formatRupiah(e.price)}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <button onClick={() => move(i, -1)} title="Naik" className="grid h-8 w-8 place-items-center rounded text-ink/50 hover:bg-slate-100">▲</button>
@@ -984,12 +1060,16 @@
         return <span className={"rounded-full px-2.5 py-1 text-[11px] font-bold " + s.cls}>{s.text}</span>;
       }
 
+      function sizesOf(r) { return Array.isArray(r.shirt_sizes) ? r.shirt_sizes : (r.shirt_size ? [r.shirt_size] : []); }
+
       function PendaftaranPanel({ initialAffiliate }) {
         const [items, setItems] = useState([]);
         const [total, setTotal] = useState(0);
         const [q, setQ] = useState("");
         const [status, setStatus] = useState("");
         const [affiliate, setAffiliate] = useState(initialAffiliate || "");
+        const [mode, setMode] = useState("");
+        const [racepack, setRacepack] = useState("");
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState("");
         const [busyId, setBusyId] = useState(null);
@@ -1005,6 +1085,8 @@
           if (q) params.set("q", q);
           if (status) params.set("status", status);
           if (affiliate) params.set("affiliate", affiliate);
+          if (mode) params.set("mode", mode);
+          if (racepack) params.set("racepack", racepack);
           params.set("page", String(p));
           params.set("pageSize", String(PAGE_SIZE));
           setPage(p);
@@ -1042,10 +1124,34 @@
           load();
         }
 
+        // Racepack: tandai diambil di RPC (cek kode tiket peserta dulu) / dikirim dengan nomor resi, atau batalkan tandanya.
+        async function aturRacepack(r, next) {
+          let note = null;
+          if (next === "picked_up") {
+            const v = prompt("Racepack " + r.ticket_code + " — " + r.name + " (" + r.quantity + " peserta" + (sizesOf(r).length ? ", jersey " + sizesOf(r).join(", ") : "") + ").\n\nNama pengambil (kosongkan jika peserta sendiri):", "");
+            if (v === null) return;
+            note = v.trim() || null;
+          } else if (next === "shipped") {
+            const v = prompt("Nomor resi pengiriman racepack " + r.ticket_code + ":", r.racepack_note || "");
+            if (v === null) return;
+            if (!v.trim()) { alert("Nomor resi wajib diisi."); return; }
+            note = v.trim();
+          } else if (!confirm("Batalkan tanda racepack " + r.ticket_code + "?")) return;
+          setBusyId(r.id);
+          const res = await apiFetch("/api/registrations/" + r.id, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ racepackStatus: next, racepackNote: note }),
+          });
+          setBusyId(null);
+          if (!res.ok) { const b = await res.json().catch(() => ({})); alert(b.error || "Gagal menyimpan status racepack."); }
+          load();
+        }
+
         async function ekspor() {
           const params = new URLSearchParams();
           if (status) params.set("status", status);
           if (affiliate) params.set("affiliate", affiliate);
+          if (mode) params.set("mode", mode);
           const res = await apiFetch("/api/registrations/export?" + params.toString());
           if (!res.ok) { alert("Gagal mengekspor."); return; }
           const text = await res.text();
@@ -1074,6 +1180,17 @@
               </select>
               <input value={affiliate} onChange={(e) => setAffiliate(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} onKeyDown={(e) => e.key === "Enter" && load(1)}
                 placeholder="Kode affiliate" className={inputCls + " max-w-[150px] font-mono"} />
+              <select value={mode} onChange={(e) => setMode(e.target.value)} className={inputCls + " max-w-[170px]"}>
+                <option value="">Semua cara ikut</option>
+                <option value="offline">📍 Offline</option>
+                <option value="online">🏃 Online</option>
+              </select>
+              <select value={racepack} onChange={(e) => setRacepack(e.target.value)} className={inputCls + " max-w-[220px]"}>
+                <option value="">Racepack: semua</option>
+                <option value="pickup_pending">Belum diambil di RPC</option>
+                <option value="shipping_pending">Belum dikirim</option>
+                <option value="done">Sudah diambil/dikirim</option>
+              </select>
               <button onClick={() => load(1)} className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">Cari</button>
             </div>
 
@@ -1093,7 +1210,7 @@
                       <th className="px-3 py-2">Total</th>
                       <th className="px-3 py-2">Kode</th>
                       <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2">Kirim</th>
+                      <th className="px-3 py-2">Racepack</th>
                       <th className="px-3 py-2">Aksi</th>
                     </tr>
                   </thead>
@@ -1101,9 +1218,10 @@
                     {items.map((r) => {
                       const hasShipping = !!r.address;
                       const donationAmount = Number(r.donation_amount) || 0;
-                      const hasDetail = hasShipping || donationAmount > 0;
+                      const sizesArr = sizesOf(r);
+                      const hasDetail = hasShipping || donationAmount > 0 || sizesArr.length > 0;
                       const expanded = expandedId === r.id;
-                      const sizesArr = Array.isArray(r.shirt_sizes) ? r.shirt_sizes : (r.shirt_size ? [r.shirt_size] : []);
+                      const settled = r.payment_status === "paid" || r.payment_status === "free";
                       const shirtSurcharge = sizesArr.reduce((sum, sz) => sum + (SHIRT_SIZE_SURCHARGE[sz] || 0), 0);
                       // Ongkir = sisa total setelah tiket, tambahan jersey, dan donasi — selalu sama dengan yang ditagih server.
                       const uniqueCode = Number(r.unique_code) || 0;
@@ -1123,6 +1241,11 @@
                                 </p>
                               )}
                               <p className="text-xs text-ink/40">{formatTanggal(r.event_date)}</p>
+                              {r.participation_mode && (
+                                <span className={"mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold " + (r.participation_mode === "offline" ? "bg-gold/25 text-orange" : "bg-brand-50 text-brand-700")}>
+                                  {r.participation_mode === "offline" ? "📍 Offline" : "🏃 Online"}
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-2">{r.quantity}</td>
                             <td className="px-3 py-2 font-semibold">
@@ -1149,12 +1272,32 @@
                               )}
                             </td>
                             <td className="px-3 py-2">
+                              {r.racepack_method && (
+                                <div className="mb-1 text-[11px]">
+                                  <p className="font-semibold text-ink/60">{r.racepack_method === "pickup" ? "Ambil di RPC" : "Dikirim"}</p>
+                                  {r.racepack_status ? (
+                                    <p className="font-bold text-brand-700" title={r.racepack_at ? new Date(r.racepack_at).toLocaleString("id-ID") : ""}>
+                                      ✓ {r.racepack_status === "picked_up" ? "Diambil" : "Resi " + (r.racepack_note || "")}
+                                      {r.racepack_status === "picked_up" && r.racepack_note ? " (" + r.racepack_note + ")" : ""}
+                                      <button disabled={busyId === r.id} onClick={() => aturRacepack(r, null)} title="Batalkan tanda racepack"
+                                        className="ml-1 font-normal text-ink/35 hover:text-orange">↺</button>
+                                    </p>
+                                  ) : settled ? (
+                                    <button disabled={busyId === r.id} onClick={() => aturRacepack(r, r.racepack_method === "pickup" ? "picked_up" : "shipped")}
+                                      className="mt-0.5 rounded-md bg-brand px-2 py-0.5 text-[11px] font-bold text-white hover:bg-brand-600 disabled:opacity-50">
+                                      {r.racepack_method === "pickup" ? "✅ Tandai diambil" : "📮 Isi resi"}
+                                    </button>
+                                  ) : (
+                                    <p className="text-ink/35">Menunggu lunas</p>
+                                  )}
+                                </div>
+                              )}
                               {hasDetail ? (
                                 <button onClick={() => setExpandedId(expanded ? null : r.id)}
                                   className="rounded-lg border border-brand-100 px-2.5 py-1 text-xs font-semibold text-brand-dark hover:bg-brand-50">
                                   📦 {expanded ? "Tutup" : "Detail"}
                                 </button>
-                              ) : (
+                              ) : !r.racepack_method && (
                                 <span className="text-xs text-ink/30">—</span>
                               )}
                             </td>
@@ -1191,6 +1334,9 @@
                                       <p><span className="font-semibold text-ink/60">Ukuran Jersey:</span> {sizesArr.length ? sizesArr.join(", ") : "-"}</p>
                                       <p><span className="font-semibold text-ink/60">Kurir:</span> {r.courier}</p>
                                     </React.Fragment>
+                                  )}
+                                  {!hasShipping && sizesArr.length > 0 && (
+                                    <p><span className="font-semibold text-ink/60">Ukuran Jersey:</span> {sizesArr.join(", ")}</p>
                                   )}
                                   {donationAmount > 0 && (
                                     <p><span className="font-semibold text-ink/60">Donasi:</span> {formatRupiah(donationAmount)}</p>

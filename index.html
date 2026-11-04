@@ -567,6 +567,11 @@
         if ((d.uniqueCode || null) !== (local.uniqueCode || null)) patch.uniqueCode = d.uniqueCode || null;
         if (d.totalAmount && d.totalAmount !== local.total) patch.total = d.totalAmount;
         if (d.createdAt && d.createdAt !== local.createdAt) patch.createdAt = d.createdAt;
+        if (d.location && d.location !== local.location) patch.location = d.location;
+        // Cara ikut & racepack (pendaftaran lama tidak punya field ini — biarkan apa adanya).
+        ["participationMode", "racepackMethod", "racepackStatus", "racepackAt", "racepackNote"].forEach((k) => {
+          if (k in d && (d[k] || null) !== (local[k] || null)) patch[k] = d[k] || null;
+        });
         return Object.keys(patch).length ? patch : null;
       }
       function updateRegistrationInCache(id, patch) {
@@ -958,6 +963,25 @@
         return { price: Math.min.apply(null, pk.map((p) => p.price)), from: pk.length > 1 };
       }
 
+      // Format event: online | offline | hybrid (peserta memilih online/offline saat mendaftar).
+      // Event lama hanya punya `online`. Racepack peserta online dikirim; peserta offline mengambil di RPC.
+      const MODE_LABEL = { online: "Online (virtual)", offline: "Offline" };
+      function eventFormat(e) {
+        if (e.format === "online" || e.format === "offline" || e.format === "hybrid") return e.format;
+        return e.online ? "online" : "offline";
+      }
+      function eventPlace(e) { return [e.location, e.city].filter(Boolean).join(", "); }
+      function eventLocationText(e) {
+        const f = eventFormat(e);
+        if (f === "online") return "Online";
+        return f === "hybrid" ? eventPlace(e) + " & Online" : eventPlace(e);
+      }
+      /** Apakah event ini punya racepack (untuk peserta dengan paket tertentu atau tanpa katalog paket). */
+      function eventHasRacepack(e) {
+        const pk = (e.packages || []).filter((p) => p.active && !p.internal);
+        return pk.length ? pk.some((p) => p.medal || p.jersey) : !!e.requiresShipping;
+      }
+
       function PackagePicker({ packages, value, onChange }) {
         return (
           <div className="mb-4">
@@ -1001,7 +1025,7 @@
               <h3 className="line-clamp-2 font-bold leading-snug text-brand-dark transition-colors group-hover:text-brand">{event.title}</h3>
               <p className="mt-1.5 flex items-center gap-1.5 text-sm text-ink/60">
                 <IconMapPin className="size-4 shrink-0 text-brand" />
-                <span className="truncate">{event.online ? "Online" : event.location + ", " + event.city}</span>
+                <span className="truncate">{eventLocationText(event)}</span>
               </p>
               <div className="mt-2 flex items-center justify-between">
                 <span className={free ? "rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-bold text-brand-700" : "text-sm font-extrabold text-brand-dark"}>{(priceInfo.from && !free ? "Mulai " : "") + formatRupiah(priceInfo.price)}</span>
@@ -1422,11 +1446,15 @@
                 <TicketRow label="Event" value={reg.title} />
                 {reg.packageName && <TicketRow label="Paket" value={reg.packageName} />}
                 <TicketRow label="Tanggal" value={formatTanggal(reg.eventDate)} />
+                {reg.participationMode && getEvent(reg.slug) && eventFormat(getEvent(reg.slug)) === "hybrid" && (
+                  <TicketRow label="Cara Ikut" value={MODE_LABEL[reg.participationMode]} />
+                )}
                 <TicketRow label="Lokasi" value={reg.location} />
                 <TicketRow label="Nama" value={reg.name} />
                 <TicketRow label={free ? "Peserta" : "Tiket"} value={String(reg.quantity)} />
                 {!free && <TicketRow label="Total" value={formatRupiah(reg.total)} strong />}
               </dl>
+              <RacepackInfo reg={reg} />
               {SITE.whatsapp && !pending && (
                 <a href={csWhatsAppUrl(reg)} target="_blank" rel="noopener noreferrer" className="flex w-full items-center justify-center gap-2 rounded-xl border border-brand px-4 py-3 text-sm font-bold text-brand transition hover:bg-brand-50">
                   <IconWhatsApp className="size-4" />Hubungi CS via WhatsApp
@@ -1486,13 +1514,64 @@
       }
       function titleCase(s) { return String(s || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()); }
 
+      /** Satu pilihan ukuran jersey per peserta — dipakai racepack yang dikirim maupun yang diambil di RPC. */
+      function ShirtSizeFields({ sizes, onChange, sizeChartImage }) {
+        const [showSizeChart, setShowSizeChart] = useState(false);
+        const selCls = "w-full rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20";
+        return (
+          <div>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <label className="block text-sm font-semibold text-brand-dark">
+                {sizes.length > 1 ? "Ukuran Jersey per Peserta" : "Ukuran Jersey"}
+              </label>
+              {sizeChartImage && (
+                <button type="button" onClick={() => setShowSizeChart(true)}
+                  className="shrink-0 text-xs font-semibold text-brand hover:underline">
+                  📏 Lihat Panduan Ukuran
+                </button>
+              )}
+            </div>
+            <div className="space-y-2">
+              {sizes.map((size, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  {sizes.length > 1 && (
+                    <span className="w-20 shrink-0 text-xs font-semibold text-ink/55">Peserta {i + 1}</span>
+                  )}
+                  <select value={size}
+                    onChange={(e) => {
+                      const next = sizes.slice();
+                      next[i] = e.target.value;
+                      onChange(next);
+                    }}
+                    className={selCls}>
+                    <option value="">Pilih ukuran</option>
+                    {SHIRT_SIZES.map((sz) => <option key={sz} value={sz}>{sz}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+            {showSizeChart && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-4"
+                onClick={() => setShowSizeChart(false)}>
+                <div className="relative max-h-[90vh] max-w-full" onClick={(e) => e.stopPropagation()}>
+                  <button type="button" onClick={() => setShowSizeChart(false)} aria-label="Tutup"
+                    className="absolute -top-3 -right-3 grid size-9 place-items-center rounded-full bg-white text-lg font-bold text-ink shadow-lg">
+                    ✕
+                  </button>
+                  <img src={sizeChartImage} alt="Panduan Ukuran Jersey" className="max-h-[90vh] max-w-full rounded-xl object-contain shadow-2xl" />
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
       function ShippingFields({ shipping, setShipping, sizeChartImage, shipQuote, needsSizes = true }) {
         const [provinces, setProvinces] = useState([]);
         const [regencies, setRegencies] = useState([]);
         const [districts, setDistricts] = useState([]);
         const [villages, setVillages] = useState([]);
         const [loadingLevel, setLoadingLevel] = useState("province");
-        const [showSizeChart, setShowSizeChart] = useState(false);
         const postalReq = React.useRef(0);
         const POSTAL_RESET = { postalCode: "", postalCheck: null, postalOverride: false };
 
@@ -1614,38 +1693,10 @@
                   className={selCls} />
                 <PostalCodeStatus shipping={shipping} setPostal={setPostal} />
               </div>
-              <div className={needsSizes ? "" : "hidden"}>
-                <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <label className="block text-sm font-semibold text-brand-dark">
-                    {shipping.shirtSizes.length > 1 ? "Ukuran Jersey per Peserta" : "Ukuran Jersey"}
-                  </label>
-                  {sizeChartImage && (
-                    <button type="button" onClick={() => setShowSizeChart(true)}
-                      className="shrink-0 text-xs font-semibold text-brand hover:underline">
-                      📏 Lihat Panduan Ukuran
-                    </button>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {shipping.shirtSizes.map((size, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      {shipping.shirtSizes.length > 1 && (
-                        <span className="w-20 shrink-0 text-xs font-semibold text-ink/55">Peserta {i + 1}</span>
-                      )}
-                      <select value={size}
-                        onChange={(e) => {
-                          const next = shipping.shirtSizes.slice();
-                          next[i] = e.target.value;
-                          setShipping((s) => Object.assign({}, s, { shirtSizes: next }));
-                        }}
-                        className={selCls}>
-                        <option value="">Pilih ukuran</option>
-                        {SHIRT_SIZES.map((sz) => <option key={sz} value={sz}>{sz}</option>)}
-                      </select>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              {needsSizes && (
+                <ShirtSizeFields sizes={shipping.shirtSizes} sizeChartImage={sizeChartImage}
+                  onChange={(next) => setShipping((s) => Object.assign({}, s, { shirtSizes: next }))} />
+              )}
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kurir</label>
                 <div className="flex items-center justify-between rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm">
@@ -1660,18 +1711,6 @@
               </div>
             </div>
           </div>
-          {showSizeChart && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-4"
-              onClick={() => setShowSizeChart(false)}>
-              <div className="relative max-h-[90vh] max-w-full" onClick={(e) => e.stopPropagation()}>
-                <button type="button" onClick={() => setShowSizeChart(false)} aria-label="Tutup"
-                  className="absolute -top-3 -right-3 grid size-9 place-items-center rounded-full bg-white text-lg font-bold text-ink shadow-lg">
-                  ✕
-                </button>
-                <img src={sizeChartImage} alt="Panduan Ukuran Jersey" className="max-h-[90vh] max-w-full rounded-xl object-contain shadow-2xl" />
-              </div>
-            </div>
-          )}
         </React.Fragment>
         );
       }
@@ -1679,15 +1718,22 @@
       const DONATION_PRESETS = [25000, 50000, 100000, 250000];
       // Judul bawaan untuk event yang belum mengisi "Judul Bagian Donasi" di admin.
       const DEFAULT_DONATION_TITLE = "Donasi Pohon Tambahan (Opsional)";
-      function DonationField({ title, label, amount, setAmount }) {
+      // Donasi wajib: pendaftar harus berdonasi minimal `min` per pendaftaran (dicek ulang di server).
+      function DonationField({ title, label, amount, setAmount, required, min }) {
+        const presets = required
+          ? [min].concat(DONATION_PRESETS.filter((p) => p > min)).slice(0, 4)
+          : DONATION_PRESETS;
         return (
           <div className="space-y-2.5 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
-            <p className="text-sm font-bold text-brand-dark">{(title && title.trim()) || DEFAULT_DONATION_TITLE}</p>
+            <p className="text-sm font-bold text-brand-dark">
+              {(title && title.trim()) || (required ? "Donasi" : DEFAULT_DONATION_TITLE)}
+              {required && <span className="ml-1.5 rounded-full bg-orange/15 px-2 py-0.5 align-middle text-[11px] font-bold text-orange">Wajib · min {formatRupiah(min)}</span>}
+            </p>
             {label && <p className="text-xs text-ink/60">{label}</p>}
             <div className="flex flex-wrap gap-2">
-              {DONATION_PRESETS.map((p) => (
+              {presets.map((p) => (
                 <button key={p} type="button"
-                  onClick={() => setAmount(amount === p ? 0 : p)}
+                  onClick={() => setAmount(amount === p && !required ? 0 : p)}
                   className={"rounded-lg border px-3 py-1.5 text-sm font-semibold transition " + (amount === p ? "border-brand bg-brand text-white" : "border-brand-100 bg-white text-brand-dark hover:bg-brand-50")}>
                   {formatRupiah(p)}
                 </button>
@@ -1697,22 +1743,109 @@
               <label className="mb-1 block text-xs font-semibold text-ink/55">Jumlah lain (Rp)</label>
               <input inputMode="numeric" value={amount ? String(amount) : ""}
                 onChange={(e) => setAmount(Math.min(10000000, Number(e.target.value.replace(/\D/g, "")) || 0))}
-                placeholder="0"
+                placeholder={required ? "Minimal " + min : "0"}
                 className="w-full rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20" />
+              {required && amount > 0 && amount < min && (
+                <p className="mt-1 text-xs font-semibold text-orange">Minimal donasi {formatRupiah(min)}.</p>
+              )}
             </div>
           </div>
         );
       }
 
+      /** Event hybrid: peserta memilih ikut offline (datang ke lokasi) atau online (virtual). */
+      function ModePicker({ event, value, onChange }) {
+        const racepack = eventHasRacepack(event);
+        const opts = [
+          { id: "offline", icon: "📍", title: "Offline", desc: "Datang ke " + (eventPlace(event) || "lokasi event") + (racepack ? ". Racepack diambil di RPC, tanpa ongkir." : ".") },
+          { id: "online", icon: "🏃", title: "Online (virtual)", desc: "Lari di mana saja" + (racepack ? ". Racepack dikirim ke alamat Anda (+ ongkir)." : ".") },
+        ];
+        return (
+          <div className="mb-4">
+            <p className="mb-2 text-sm font-semibold text-brand-dark">Pilih Cara Ikut</p>
+            <div className="grid gap-2" role="radiogroup">
+              {opts.map((o) => {
+                const on = o.id === value;
+                return (
+                  <button key={o.id} type="button" role="radio" aria-checked={on} onClick={() => onChange(o.id)}
+                    className={"flex w-full items-start gap-3 rounded-xl border px-3.5 py-3 text-left transition " + (on ? "border-brand bg-brand-50 ring-2 ring-brand/20" : "border-brand-100 bg-white hover:border-brand")}>
+                    <span className={"mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border-2 " + (on ? "border-brand" : "border-ink/25")}>
+                      {on && <span className="size-2.5 rounded-full bg-brand" />}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-bold text-brand-dark">{o.icon} {o.title}</span>
+                      <span className="mt-0.5 block text-xs text-ink/65">{o.desc}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
+
+      /** Info Race Pack Collection untuk peserta offline. */
+      function RpcDetails({ event, compact }) {
+        const rows = [["Lokasi", event.rpcLocation], ["Alamat", event.rpcAddress], ["Jadwal", event.rpcSchedule]].filter((r) => r[1]);
+        if (!rows.length) {
+          return <p className="text-xs text-ink/60">Lokasi & jadwal pengambilan racepack akan diumumkan panitia lewat WhatsApp/email.</p>;
+        }
+        return (
+          <div className="space-y-1 text-xs text-ink/70">
+            {rows.map((r) => <p key={r[0]}><span className="font-semibold text-brand-dark">{r[0]}:</span> {r[1]}</p>)}
+            {event.rpcMapsUrl && <a href={event.rpcMapsUrl} target="_blank" rel="noopener noreferrer" className="inline-block font-semibold text-brand hover:underline">📍 Buka di Google Maps</a>}
+            {!compact && event.rpcNotes && <p className="whitespace-pre-line">{event.rpcNotes}</p>}
+          </div>
+        );
+      }
+
+      /** Status racepack di tiket: diambil di RPC (peserta offline) atau dikirim (peserta online). */
+      function RacepackInfo({ reg }) {
+        const event = getEvent(reg.slug);
+        if (!reg.racepackMethod || reg.paymentStatus === "cancelled") return null;
+        const tgl = (iso) => iso ? new Date(iso).toLocaleString("id-ID", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+        if (reg.racepackStatus === "picked_up" || reg.racepackStatus === "shipped") {
+          return (
+            <div className="rounded-xl bg-brand-50 px-3 py-2.5 text-xs text-brand-dark">
+              <p className="font-bold">{reg.racepackStatus === "picked_up" ? "✅ Racepack sudah diambil" : "📦 Racepack sudah dikirim"}</p>
+              <p className="mt-0.5 text-ink/60">{tgl(reg.racepackAt)}{reg.racepackStatus === "shipped" && reg.racepackNote ? " · Resi " + reg.racepackNote : ""}</p>
+            </div>
+          );
+        }
+        if (reg.racepackMethod === "shipping") {
+          return <p className="rounded-xl bg-brand-50/60 px-3 py-2.5 text-xs text-ink/65">📦 Racepack dikirim ke alamat Anda via POS Indonesia{reg.paymentStatus === "pending_transfer" ? " setelah pembayaran lunas" : ""}.</p>;
+        }
+        return (
+          <div className="space-y-1.5 rounded-xl border border-brand-100 bg-brand-50/60 px-3 py-2.5">
+            <p className="text-xs font-bold text-brand-dark">🎽 Ambil racepack di RPC (Race Pack Collection)</p>
+            {event && <RpcDetails event={event} compact />}
+            <p className="text-xs text-ink/60">Tunjukkan kode tiket <b className="font-mono">{reg.code}</b>{reg.paymentStatus === "pending_transfer" ? " — racepack hanya untuk pesanan yang sudah lunas" : ""}.</p>
+          </div>
+        );
+      }
+
       function RegistrationForm({ event, paketParam }) {
+        // Cara ikut: event hybrid → peserta memilih (belum ada pilihan bawaan); selain itu mengikuti format event.
+        const format = eventFormat(event);
+        const [mode, setMode] = useState(format === "hybrid" ? "" : format);
         // Katalog paket: paket internal (testing) hanya tampil kalau dibuka lewat link ?paket=<kode>.
+        // Event hybrid: paket bisa khusus peserta online/offline — tampil setelah cara ikut dipilih.
         const activePkgs = (event.packages || []).filter((p) => p.active);
         const hasPkgs = activePkgs.length > 0;
-        const visiblePkgs = activePkgs.filter((p) => !p.internal || p.id === paketParam);
+        const visiblePkgs = activePkgs.filter((p) => (!p.internal || p.id === paketParam) && (format !== "hybrid" || !p.mode || p.mode === mode));
         const [pkgId, setPkgId] = useState(() => {
           const fromLink = visiblePkgs.find((p) => p.id === paketParam);
           return fromLink ? fromLink.id : visiblePkgs.length === 1 ? visiblePkgs[0].id : "";
         });
+        // Ganti cara ikut → paket yang tidak berlaku untuk cara ikut baru dilepas.
+        useEffect(() => {
+          if (!hasPkgs) return;
+          setPkgId((cur) => {
+            if (visiblePkgs.some((p) => p.id === cur)) return cur;
+            const fromLink = visiblePkgs.find((p) => p.id === paketParam);
+            return fromLink ? fromLink.id : visiblePkgs.length === 1 ? visiblePkgs[0].id : "";
+          });
+        }, [mode]);
         const pkg = visiblePkgs.find((p) => p.id === pkgId) || null;
         const unitPrice = hasPkgs ? (pkg ? pkg.price : 0) : event.price;
         const free = hasPkgs ? !!pkg && pkg.price <= 0 : event.price <= 0;
@@ -1741,9 +1874,14 @@
           }, 400);
           return () => { stale = true; clearTimeout(t); };
         }, [refCode, event.slug]);
-        const needsShipping = hasPkgs ? !!pkg && (pkg.medal || pkg.jersey) : !!event.requiresShipping;
-        const needsSizes = hasPkgs ? !!pkg && pkg.jersey : needsShipping;
+        // Racepack: peserta online → dikirim ke alamat (+ongkir); peserta offline → diambil di RPC.
+        const hasRacepack = !!mode && (hasPkgs ? !!pkg && (pkg.medal || pkg.jersey) : !!event.requiresShipping);
+        const needsShipping = hasRacepack && mode === "online";
+        const needsPickup = hasRacepack && mode === "offline";
+        const needsSizes = hasRacepack && (hasPkgs ? !!pkg && pkg.jersey : true);
         const donationEnabled = !!event.donationEnabled;
+        const donationRequired = donationEnabled && !!event.donationRequired;
+        const donationMin = Math.max(1, Number(event.donationMin) || 0);
         const shirtSurchargeTotal = needsSizes
           ? shipping.shirtSizes.reduce((sum, sz) => sum + (SHIRT_SIZE_SURCHARGE[sz] || 0), 0)
           : 0;
@@ -1821,7 +1959,12 @@
           e.preventDefault();
           if (!name.trim() || !email.trim() || !phone.trim()) { setError("Mohon lengkapi nama, email, dan nomor WhatsApp."); return; }
           if (!/^\S+@\S+\.\S+$/.test(email)) { setError("Format email belum benar."); return; }
+          if (!mode) { setError("Pilih cara ikut: Offline atau Online."); return; }
           if (hasPkgs && !pkg) { setError("Pilih paket terlebih dahulu."); return; }
+          if (donationRequired && donation < donationMin) { setError("Donasi wajib diisi, minimal " + formatRupiah(donationMin) + "."); return; }
+          if (needsPickup && needsSizes && (shipping.shirtSizes.length !== qty || shipping.shirtSizes.some((sz) => !sz))) {
+            setError("Pilih ukuran jersey untuk setiap peserta."); return;
+          }
           if (needsShipping) {
             if (!shipping.address.trim()) { setError("Alamat wajib diisi."); return; }
             if (!shipping.province || !shipping.city || !shipping.district || !shipping.subdistrict) {
@@ -1851,7 +1994,8 @@
             eventTitle: event.title,
             eventCategory: event.category,
             eventDate: event.date,
-            eventLocation: event.online ? "Online" : event.location + ", " + event.city,
+            eventLocation: mode === "online" ? "Online" : eventPlace(event),
+            participationMode: mode,
             name: name.trim(),
             email: email.trim(),
             phone: phone.trim(),
@@ -1869,6 +2013,7 @@
               shirtSizes: needsSizes ? shipping.shirtSizes : [],
               courier: shipping.courier,
             } : undefined,
+            shirtSizes: needsPickup && needsSizes ? shipping.shirtSizes : undefined,
             metaEventId: eventId,
             metaFbp: readCookie("_fbp"),
             metaFbc: readCookie("_fbc"),
@@ -1900,7 +2045,10 @@
             paymentUrl: result.data.paymentUrl || null,
             uniqueCode: result.data.uniqueCode || null, paymentClaimedAt: null,
             eventDate: event.date,
-            location: event.online ? "Online" : event.location + ", " + event.city,
+            location: result.data.location || (mode === "online" ? "Online" : eventPlace(event)),
+            participationMode: result.data.participationMode || mode,
+            racepackMethod: result.data.racepackMethod || (needsShipping ? "shipping" : needsPickup ? "pickup" : null),
+            racepackStatus: null,
             createdAt: result.data.createdAt || new Date().toISOString(),
           };
           saveRegistration(reg);
@@ -1982,8 +2130,12 @@
                 🚀 Pre-launch — Anda bisa mendaftar lebih awal. Pendaftaran resmi dibuka {formatTanggalPendek(event.registrationStart)}.
               </p>
             )}
+            {format === "hybrid" && <ModePicker event={event} value={mode} onChange={setMode} />}
             {hasPkgs ? (
-              <PackagePicker packages={visiblePkgs} value={pkgId} onChange={setPkgId} />
+              mode ? (
+                visiblePkgs.length ? <PackagePicker packages={visiblePkgs} value={pkgId} onChange={setPkgId} />
+                  : <p className="mb-4 rounded-xl bg-gold/15 px-3 py-2 text-sm text-ink/70">Belum ada paket untuk peserta {MODE_LABEL[mode].toLowerCase()}.</p>
+              ) : null
             ) : (
               <div className="mb-4 flex items-baseline justify-between">
                 <span className="text-sm font-semibold text-ink/60">Harga</span>
@@ -2003,7 +2155,8 @@
                 </div>
               </div>
               {donationEnabled && (
-                <DonationField title={event.donationTitle} label={event.donationLabel} amount={donation} setAmount={setDonation} />
+                <DonationField title={event.donationTitle} label={event.donationLabel} amount={donation} setAmount={setDonation}
+                  required={donationRequired} min={donationMin} />
               )}
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kode Affiliate <span className="font-normal text-ink/45">(opsional)</span></label>
@@ -2032,6 +2185,12 @@
                     <span>{formatRupiah(shirtSurchargeTotal)}</span>
                   </div>
                 )}
+                {needsPickup && (
+                  <div className="flex items-center justify-between text-sm text-ink/60">
+                    <span>Racepack diambil di RPC</span>
+                    <span>Tanpa ongkir</span>
+                  </div>
+                )}
                 {needsShipping && (
                   <div className="flex items-center justify-between text-sm text-ink/60">
                     <span>Ongkir POS Indonesia</span>
@@ -2047,6 +2206,19 @@
             {needsShipping && (
               <div className="mt-4">
                 <ShippingFields shipping={shipping} setShipping={setShipping} sizeChartImage={event.sizeChartImage} shipQuote={shipQuote} needsSizes={needsSizes} />
+              </div>
+            )}
+            {needsPickup && (
+              <div className="mt-4 space-y-3 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
+                <div>
+                  <p className="text-sm font-bold text-brand-dark">Pengambilan Racepack (RPC)</p>
+                  <p className="mt-0.5 text-xs text-ink/60">Peserta offline mengambil racepack di lokasi berikut — tidak dikirim ke alamat.</p>
+                </div>
+                <RpcDetails event={event} />
+                {needsSizes && (
+                  <ShirtSizeFields sizes={shipping.shirtSizes} sizeChartImage={event.sizeChartImage}
+                    onChange={(next) => setShipping((s) => Object.assign({}, s, { shirtSizes: next }))} />
+                )}
               </div>
             )}
             {error && <p className="mt-3 rounded-lg bg-orange/10 px-3 py-2 text-sm font-medium text-orange">{error}</p>}
@@ -2273,7 +2445,8 @@
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <Fact icon={IconCalendar} label={event.dateEnd ? "Pelaksanaan" : "Tanggal"} value={formatTanggalRange(event.date, event.dateEnd)} />
                     <Fact icon={IconClock} label="Waktu" value={formatWaktu(event.timeStart, event.timeEnd)} />
-                    <Fact icon={IconMapPin} label="Lokasi" value={event.online ? event.location : event.location + ", " + event.city} />
+                    <Fact icon={IconMapPin} label="Lokasi" value={eventFormat(event) === "online" ? event.location : eventPlace(event)} />
+                    {eventFormat(event) === "hybrid" && <Fact icon={IconUsers} label="Cara Ikut" value="Offline di lokasi atau Online (virtual)" />}
                     <Fact icon={IconUsers} label="Kuota" value={terisi + " dari " + event.quota + " terisi"} />
                     {(event.registrationStart || event.registrationEnd) && (
                       <Fact icon={IconCalendar} label="Pendaftaran"
@@ -2303,6 +2476,19 @@
                     ))}
                   </ul>
                 </Section>
+                {eventFormat(event) !== "online" && eventHasRacepack(event) && (
+                  <Section title="Racepack">
+                    <div className="space-y-3 rounded-2xl border border-brand-50 bg-white p-4 text-sm text-ink/75">
+                      <div>
+                        <p className="font-bold text-brand-dark">🎽 {eventFormat(event) === "hybrid" ? "Peserta offline: ambil di RPC" : "Ambil di RPC (Race Pack Collection)"}</p>
+                        <div className="mt-1.5"><RpcDetails event={event} /></div>
+                      </div>
+                      {eventFormat(event) === "hybrid" && (
+                        <p><span className="font-bold text-brand-dark">📦 Peserta online:</span> racepack dikirim ke alamat yang diisi saat mendaftar via POS Indonesia (ongkir ditanggung peserta).</p>
+                      )}
+                    </div>
+                  </Section>
+                )}
                 {event.speaker && (
                   <Section title="Pemateri">
                     <div className="flex items-center gap-3 rounded-2xl border border-brand-50 bg-white p-4">
@@ -2402,6 +2588,7 @@
                             <p className="flex items-center gap-1.5"><IconCalendar className="size-4 text-brand" />{formatTanggal(r.eventDate)}</p>
                             <p className="flex items-center gap-1.5"><IconMapPin className="size-4 text-brand" /><span className="truncate">{r.location}</span></p>
                           </div>
+                          {r.racepackMethod && <div className="mt-3"><RacepackInfo reg={r} /></div>}
                           {r.paymentStatus === "cancelled" && r.cancelReason === "expired" && (
                             <p className="mt-3 rounded-lg bg-orange/10 px-3 py-2 text-xs text-ink/70">
                               Pesanan dibatalkan otomatis karena belum dibayar dalam 24 jam. Sudah transfer?{" "}
