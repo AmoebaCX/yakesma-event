@@ -24,8 +24,13 @@
 # 3) Halaman HTML selalu dicek ulang ke server (2026-11-05). Tanpa ini browser menyimpan
 #    index.html/admin lama berhari-hari setelah IT mengunggah versi baru. "no-cache" tetap
 #    memakai salinan lokal bila file tidak berubah (304), jadi tidak memperlambat situs.
+#    Dua cara sekaligus — sebagian server LiteSpeed hanya membaca salah satunya.
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/html "access plus 0 seconds"
+</IfModule>
 <IfModule mod_headers.c>
   <FilesMatch "\.html?$">
-    Header set Cache-Control "no-cache"
+    Header always set Cache-Control "no-cache"
   </FilesMatch>
 </IfModule>
