@@ -52,8 +52,10 @@
       /* ============ KONFIG ============ */
       const WORK_KEY = "yakesma_admin_data"; // buffer pemulihan jika simpan gagal, bukan draft
 
-      const FALLBACK_CATEGORIES = ["Kajian", "Webinar", "Kelas", "Seminar", "Sosial", "Relawan", "Lari Virtual"];
-      const EMOJIS = ["🕌","📖","🎓","🤝","🎈","💻","🌙","🎪","👨‍👩‍👧","✨","📿","🕋","💚","🎁","📣","🍲"];
+      const FALLBACK_CATEGORIES = ["Kajian", "Webinar", "Kelas", "Seminar", "Sosial", "Relawan", "Running", "Lari Virtual"];
+      // Ikon garis kecil (pengganti emoji) untuk tombol admin.
+      const TrashIcon = () => <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" /></svg>;
+      const LockIcon = () => <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></svg>;
       const GRADIENTS = [
         ["#28a840","#185838"],["#1f9036","#0e6b4e"],["#f6b700","#f58634"],
         ["#185838","#28a840"],["#f58634","#f6b700"],["#28a840","#1f9036"],
@@ -88,7 +90,7 @@
           location: "", city: "", online: false,
           date: "", dateEnd: "", registrationStart: "", registrationEnd: "", timeStart: "", timeEnd: "",
           price: 0, quota: 100, registered: 0,
-          gradient: ["#28a840", "#185838"], emoji: "🕌", imageSquare: "", imageWide: "", sizeChartImage: "", gallery: [],
+          gradient: ["#28a840", "#185838"], emoji: "", imageSquare: "", imageWide: "", sizeChartImage: "", gallery: [],
           excerpt: "", about: [""], benefits: [""], featured: false,
           requiresShipping: false,
           donationEnabled: false, donationLabel: "", donationTitle: "", preLaunch: false,
@@ -235,7 +237,7 @@
                     <div className="flex shrink-0 items-center gap-1">
                       <button type="button" onClick={() => move(i, -1)} title="Naik" className="grid h-7 w-7 place-items-center rounded text-ink/50 hover:bg-slate-100">▲</button>
                       <button type="button" onClick={() => move(i, 1)} title="Turun" className="grid h-7 w-7 place-items-center rounded text-ink/50 hover:bg-slate-100">▼</button>
-                      <button type="button" onClick={() => remove(i)} title="Hapus" className="grid h-7 w-7 place-items-center rounded text-orange hover:bg-orange/10">🗑</button>
+                      <button type="button" onClick={() => remove(i)} title="Hapus" className="grid h-7 w-7 place-items-center rounded text-orange hover:bg-orange/10"><TrashIcon /></button>
                     </div>
                   </div>
                 ))}
@@ -479,8 +481,8 @@
                     <div className="col-span-2 sm:col-span-4"><Text label="Isi paket (tampil ke pendaftar)" value={p.description} onChange={(v) => update(i, { description: v })} placeholder="mis. Donasi pohon + medali finisher" /></div>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-semibold text-ink/75">
-                    <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.medal} onChange={(e) => update(i, { medal: e.target.checked })} /> 🏅 Medali</label>
-                    <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.jersey} onChange={(e) => update(i, { jersey: e.target.checked })} /> 👕 Jersey</label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.medal} onChange={(e) => update(i, { medal: e.target.checked })} /> Medali</label>
+                    <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.jersey} onChange={(e) => update(i, { jersey: e.target.checked })} /> Jersey</label>
                     <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.active} onChange={(e) => update(i, { active: e.target.checked })} /> Aktif</label>
                     <label className="flex items-center gap-1.5"><input type="checkbox" checked={!!p.internal} onChange={(e) => update(i, { internal: e.target.checked })} /> Internal / testing</label>
                     {hybrid && (
@@ -494,7 +496,7 @@
                     <span className="ml-auto flex items-center gap-1">
                       <button type="button" onClick={() => move(i, -1)} title="Naik" className="grid h-7 w-7 place-items-center rounded text-ink/50 hover:bg-slate-100">▲</button>
                       <button type="button" onClick={() => move(i, 1)} title="Turun" className="grid h-7 w-7 place-items-center rounded text-ink/50 hover:bg-slate-100">▼</button>
-                      <button type="button" onClick={() => onChange(list.filter((_, j) => j !== i))} title="Hapus paket" className="grid h-7 w-7 place-items-center rounded text-orange hover:bg-orange/10">🗑</button>
+                      <button type="button" onClick={() => onChange(list.filter((_, j) => j !== i))} title="Hapus paket" className="grid h-7 w-7 place-items-center rounded text-orange hover:bg-orange/10"><TrashIcon /></button>
                     </span>
                   </div>
                   {p.internal && (
@@ -543,6 +545,9 @@
           e.donationRequired = !!e.donationEnabled && !!e.donationRequired;
           e.donationMin = e.donationRequired ? Number(e.donationMin) || 0 : 0;
           if (e.donationRequired && e.donationMin < 1000) { alert("Isi minimal donasi (paling sedikit Rp1.000) untuk donasi wajib."); return; }
+          if (e.rpcDateEnd && !e.rpcDate) { alert("Isi tanggal mulai RPC."); return; }
+          if (e.rpcDate && e.rpcDateEnd && e.rpcDateEnd < e.rpcDate) { alert("Tanggal selesai RPC tidak boleh sebelum tanggal mulai RPC."); return; }
+          if (e.rpcDate && e.date && e.rpcDate > (e.dateEnd || e.date)) { alert("Tanggal RPC tidak boleh setelah pelaksanaan event."); return; }
           e.about = (typeof e.about === "string" ? e.about.split("\n") : e.about).map((x) => x.trim()).filter(Boolean);
           e.benefits = (typeof e.benefits === "string" ? e.benefits.split("\n") : e.benefits).map((x) => x.trim()).filter(Boolean);
           if (!e.about.length) e.about = [""];
@@ -569,7 +574,7 @@
                   {previewImg && <div className="absolute inset-0" style={{ backgroundImage: "linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0.05) 55%, transparent)" }} />}
                   <div className="relative flex h-full flex-col justify-between p-4 text-white">
                     <div className="flex justify-between"><span className="text-[11px] font-extrabold uppercase tracking-widest opacity-90">YAKESMA</span><span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold">{ev.category}</span></div>
-                    <div className="text-xl font-extrabold drop-shadow">{ev.title || "Judul Event"} <span className="text-2xl">{ev.emoji}</span></div>
+                    <div className="text-xl font-extrabold drop-shadow">{ev.title || "Judul Event"}</div>
                   </div>
                 </div>
               );
@@ -613,8 +618,13 @@
                     </p>
                   </div>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <Text label="Lokasi RPC" value={ev.rpcLocation} onChange={(v) => set("rpcLocation", v)} placeholder="mis. Masjid Agung Al-Azhar, Aula Lt. 2" />
-                    <Text label="Jadwal RPC" value={ev.rpcSchedule} onChange={(v) => set("rpcSchedule", v)} placeholder="mis. Sabtu–Minggu, 15–16 Jan 2027, 10.00–20.00 WIB" />
+                    <Text label="Lokasi RPC" value={ev.rpcLocation} onChange={(v) => set("rpcLocation", v)} placeholder="mis. Masjid Agung Al-Azhar, Aula Lt. 2"
+                      hint="Tempat pengambilan racepack — boleh berbeda dari lokasi lari." />
+                    <Text label="Jam RPC" value={ev.rpcTime} onChange={(v) => set("rpcTime", v)} placeholder="mis. 10.00–20.00 WIB" />
+                    <Text label="Tanggal mulai RPC" type="date" value={ev.rpcDate || ""} onChange={(v) => set("rpcDate", v)}
+                      hint="Boleh sebelum hari pelaksanaan lari." />
+                    <Text label="Tanggal selesai RPC (opsional)" type="date" value={ev.rpcDateEnd || ""} onChange={(v) => set("rpcDateEnd", v)}
+                      hint="Isi kalau RPC lebih dari satu hari." />
                     <div className="sm:col-span-2"><Text label="Alamat RPC" value={ev.rpcAddress} onChange={(v) => set("rpcAddress", v)} placeholder="Jl. Sisingamangaraja, Kebayoran Baru, Jakarta Selatan" /></div>
                     <div className="sm:col-span-2"><Text label="Link Google Maps (opsional)" value={ev.rpcMapsUrl} onChange={(v) => set("rpcMapsUrl", v)} placeholder="https://maps.app.goo.gl/..." /></div>
                     <div className="sm:col-span-2"><Area label="Catatan pengambilan (opsional)" value={ev.rpcNotes} onChange={(v) => set("rpcNotes", v)} rows={2}
@@ -741,15 +751,9 @@
               />
               <p className="sm:col-span-2 -mt-2 text-xs text-ink/45">
                 Kalau cuma salah satu diisi, gambar itu dipakai untuk keduanya. Tanpa gambar sama
-                sekali, poster memakai warna gradient + emoji seperti biasa. Format JPG/PNG/WEBP,
+                sekali, poster memakai warna gradient di bawah. Format JPG/PNG/WEBP,
                 maks 3MB per gambar.
               </p>
-              <div className="sm:col-span-2">
-                <Label>Emoji poster</Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {EMOJIS.map((em) => <button key={em} type="button" onClick={() => set("emoji", em)} className={"grid h-9 w-9 place-items-center rounded-lg border text-lg " + (ev.emoji === em ? "border-brand bg-brand-50" : "border-slate-200 bg-white")}>{em}</button>)}
-                </div>
-              </div>
               <div className="sm:col-span-2">
                 <Label>Warna poster</Label>
                 <div className="flex flex-wrap gap-2">
@@ -817,7 +821,7 @@
                     <button onClick={() => move(i, 1)} title="Turun" className="grid h-8 w-8 place-items-center rounded text-ink/50 hover:bg-slate-100">▼</button>
                     <button onClick={() => dup(i)} title="Duplikat" className="grid h-8 w-8 place-items-center rounded text-ink/50 hover:bg-slate-100">⧉</button>
                     <button onClick={() => onEdit(i)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Edit</button>
-                    <button onClick={() => del(i)} title="Hapus" className="grid h-8 w-8 place-items-center rounded text-orange hover:bg-orange/10">🗑</button>
+                    <button onClick={() => del(i)} title="Hapus" className="grid h-8 w-8 place-items-center rounded text-orange hover:bg-orange/10"><TrashIcon /></button>
                   </div>
                 </div>
               ))}
@@ -827,6 +831,45 @@
       }
 
       /* ============ SETTINGS ============ */
+      /** Kategori event (dropdown di editor event & filter di situs). Kategori yang masih dipakai event tidak bisa dihapus. */
+      function CategoryEditor({ data, setData }) {
+        const cats = data.categories && data.categories.length ? data.categories : FALLBACK_CATEGORIES;
+        const [draft, setDraft] = useState("");
+        function add() {
+          const name = draft.trim().replace(/\s+/g, " ").slice(0, 60);
+          if (!name) return;
+          if (cats.some((c) => c.toLowerCase() === name.toLowerCase())) { alert("Kategori \"" + name + "\" sudah ada."); return; }
+          setData({ ...data, categories: cats.concat(name) });
+          setDraft("");
+        }
+        function remove(c) {
+          const used = data.events.filter((e) => e.category === c).map((e) => e.title);
+          if (used.length) { alert("Kategori \"" + c + "\" masih dipakai: " + used.join(", ") + ". Ganti kategori event tersebut dulu."); return; }
+          if (cats.length <= 1) { alert("Minimal harus ada satu kategori."); return; }
+          if (!confirm("Hapus kategori \"" + c + "\"?")) return;
+          setData({ ...data, categories: cats.filter((x) => x !== c) });
+        }
+        return (
+          <div>
+            <Label>Kategori Event</Label>
+            <div className="flex flex-wrap gap-2">
+              {cats.map((c) => (
+                <span key={c} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white py-1 pl-3 pr-1 text-sm font-semibold text-ink/75">
+                  {c}
+                  <button type="button" onClick={() => remove(c)} title={"Hapus " + c} aria-label={"Hapus " + c}
+                    className="grid h-6 w-6 place-items-center rounded-full text-ink/35 hover:bg-orange/10 hover:text-orange">×</button>
+                </span>
+              ))}
+            </div>
+            <div className="mt-2 flex max-w-md gap-2">
+              <input className={inputCls} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+                placeholder="Kategori baru, mis. Running" />
+              <button type="button" onClick={add} className="shrink-0 rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">Tambah</button>
+            </div>
+          </div>
+        );
+      }
+
       function Settings({ data, setData }) {
         const s = data.site || {};
         const setS = (k, v) => setData({ ...data, site: { ...s, [k]: v } });
@@ -835,6 +878,7 @@
         return (
           <div className="space-y-6">
             <h2 className="text-lg font-extrabold text-brand-dark">Pengaturan Situs</h2>
+            <CategoryEditor data={data} setData={setData} />
             <div className="grid gap-4 sm:grid-cols-2">
               <Text label="Nama Brand" value={s.name} onChange={(v) => setS("name", v)} />
               <Text label="Tagline" value={s.tagline} onChange={(v) => setS("tagline", v)} />
@@ -903,7 +947,7 @@
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-extrabold text-brand-dark">Pratinjau Langsung</h2>
               <div className="flex items-center gap-2">
-                <button onClick={() => setWide(!wide)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">{wide ? "📱 Mobile" : "🖥 Desktop"}</button>
+                <button onClick={() => setWide(!wide)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">{wide ? "Tampilan HP" : "Tampilan desktop"}</button>
                 <button onClick={() => setNonce(Date.now())} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-600">↻ Segarkan</button>
               </div>
             </div>
@@ -1174,7 +1218,7 @@
                 <option value="">Semua status</option>
                 <option value="free">Gratis</option>
                 <option value="pending_transfer">Menunggu Konfirmasi</option>
-                <option value="claimed">💰 Sudah bayar (cek mutasi)</option>
+                <option value="claimed">Sudah bayar (cek mutasi)</option>
                 <option value="paid">Lunas</option>
                 <option value="cancelled">Dibatalkan</option>
               </select>
@@ -1182,8 +1226,8 @@
                 placeholder="Kode affiliate" className={inputCls + " max-w-[150px] font-mono"} />
               <select value={mode} onChange={(e) => setMode(e.target.value)} className={inputCls + " max-w-[170px]"}>
                 <option value="">Semua cara ikut</option>
-                <option value="offline">📍 Offline</option>
-                <option value="online">🏃 Online</option>
+                <option value="offline">Offline</option>
+                <option value="online">Online</option>
               </select>
               <select value={racepack} onChange={(e) => setRacepack(e.target.value)} className={inputCls + " max-w-[220px]"}>
                 <option value="">Racepack: semua</option>
@@ -1243,7 +1287,7 @@
                               <p className="text-xs text-ink/40">{formatTanggal(r.event_date)}</p>
                               {r.participation_mode && (
                                 <span className={"mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold " + (r.participation_mode === "offline" ? "bg-gold/25 text-orange" : "bg-brand-50 text-brand-700")}>
-                                  {r.participation_mode === "offline" ? "📍 Offline" : "🏃 Online"}
+                                  {r.participation_mode === "offline" ? "Offline" : "Online"}
                                 </span>
                               )}
                             </td>
@@ -1256,7 +1300,7 @@
                               {r.ticket_code}
                               <button disabled={busyId === r.id} onClick={() => aturAffiliate(r)} title="Atur kode affiliate"
                                 className={"mt-1 block rounded px-1.5 py-0.5 text-[10px] font-bold " + (r.affiliate_code ? "bg-brand-50 text-brand-700" : "text-ink/30 hover:text-brand-700")}>
-                                🤝 {r.affiliate_code || "affiliate"}
+                                {r.affiliate_code ? "Aff: " + r.affiliate_code : "+ affiliate"}
                               </button>
                             </td>
                             <td className="px-3 py-2">
@@ -1268,7 +1312,7 @@
                                 <p className="mt-1 text-[10px] text-orange">Otomatis: belum bayar 24 jam</p>
                               )}
                               {r.payment_status === "pending_transfer" && r.payment_claimed_at && (
-                                <p className="mt-1 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold text-brand-700" title={"Diklik " + new Date(r.payment_claimed_at).toLocaleString("id-ID")}>💰 Peserta sudah bayar — cek mutasi</p>
+                                <p className="mt-1 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold text-brand-700" title={"Diklik " + new Date(r.payment_claimed_at).toLocaleString("id-ID")}>Peserta sudah bayar — cek mutasi</p>
                               )}
                             </td>
                             <td className="px-3 py-2">
@@ -1285,7 +1329,7 @@
                                   ) : settled ? (
                                     <button disabled={busyId === r.id} onClick={() => aturRacepack(r, r.racepack_method === "pickup" ? "picked_up" : "shipped")}
                                       className="mt-0.5 rounded-md bg-brand px-2 py-0.5 text-[11px] font-bold text-white hover:bg-brand-600 disabled:opacity-50">
-                                      {r.racepack_method === "pickup" ? "✅ Tandai diambil" : "📮 Isi resi"}
+                                      {r.racepack_method === "pickup" ? "Tandai diambil" : "Isi resi"}
                                     </button>
                                   ) : (
                                     <p className="text-ink/35">Menunggu lunas</p>
@@ -1295,7 +1339,7 @@
                               {hasDetail ? (
                                 <button onClick={() => setExpandedId(expanded ? null : r.id)}
                                   className="rounded-lg border border-brand-100 px-2.5 py-1 text-xs font-semibold text-brand-dark hover:bg-brand-50">
-                                  📦 {expanded ? "Tutup" : "Detail"}
+                                  {expanded ? "Tutup" : "Detail"}
                                 </button>
                               ) : !r.racepack_method && (
                                 <span className="text-xs text-ink/30">—</span>
@@ -1540,8 +1584,8 @@
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-                      <button onClick={() => copyLink(a)} className="rounded-lg border border-brand-100 px-2.5 py-1 text-xs font-semibold text-brand-dark hover:bg-brand-50">{copiedId === a.id ? "✓ Tersalin" : "🔗 Salin link halaman affiliate"}</button>
-                      {a.phone && <a href={waLink(a)} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-brand-100 px-2.5 py-1 text-xs font-semibold text-brand-dark hover:bg-brand-50">💬 Kirim via WhatsApp</a>}
+                      <button onClick={() => copyLink(a)} className="rounded-lg border border-brand-100 px-2.5 py-1 text-xs font-semibold text-brand-dark hover:bg-brand-50">{copiedId === a.id ? "✓ Tersalin" : "Salin link halaman affiliate"}</button>
+                      {a.phone && <a href={waLink(a)} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-brand-100 px-2.5 py-1 text-xs font-semibold text-brand-dark hover:bg-brand-50">Kirim via WhatsApp</a>}
                       <button onClick={() => onShowRegistrations(a.code)} className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-ink/70 hover:bg-slate-50">Lihat pendaftar</button>
                       <button onClick={() => setEditing(a)} className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-ink/70 hover:bg-slate-50">Ubah</button>
                       <button disabled={busyId === a.id} onClick={() => patch(a, { active: !a.active }, a.active ? "Nonaktifkan " + a.code + "? Pendaftar baru tidak lagi tercatat atas kode ini (data lama tetap)." : null)}
@@ -1992,7 +2036,7 @@
                 <div className="flex items-center gap-2">
                   <a href="../index.html" target="_blank" rel="noopener" className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Buka situs ↗</a>
                   <button onClick={revokeAllSessions} title="Keluarkan semua perangkat yang sedang login admin (mis. laptop/HP hilang)" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-ink/60 hover:bg-slate-50">Keluar semua perangkat</button>
-                  <button onClick={() => { clearApiToken(); location.reload(); }} title="Kunci" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-ink/60 hover:bg-slate-50">🔒</button>
+                  <button onClick={() => { clearApiToken(); location.reload(); }} title="Kunci panel" aria-label="Kunci panel" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-ink/60 hover:bg-slate-50"><LockIcon /></button>
                 </div>
               </div>
               {!editing && (

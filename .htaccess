@@ -20,3 +20,12 @@
   Header always set Content-Security-Policy "frame-ancestors 'self'"
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
+
+# 3) Halaman HTML selalu dicek ulang ke server (2026-11-05). Tanpa ini browser menyimpan
+#    index.html/admin lama berhari-hari setelah IT mengunggah versi baru. "no-cache" tetap
+#    memakai salinan lokal bila file tidak berubah (304), jadi tidak memperlambat situs.
+<IfModule mod_headers.c>
+  <FilesMatch "\.html?$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>

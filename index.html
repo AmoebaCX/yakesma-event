@@ -912,6 +912,10 @@
       const IconShare = (p) => <SIcon {...p}><circle cx="6" cy="12" r="2.4" /><circle cx="18" cy="6" r="2.4" /><circle cx="18" cy="18" r="2.4" /><path d="M8.2 10.8 15.8 7.2M8.2 13.2 15.8 16.8" /></SIcon>;
       const IconCopy = (p) => <SIcon {...p}><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></SIcon>;
       const IconLogOut = (p) => <SIcon {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></SIcon>;
+      const IconGlobe = (p) => <SIcon {...p}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z" /></SIcon>;
+      const IconX = (p) => <SIcon {...p}><path d="M6 6l12 12M18 6 6 18" /></SIcon>;
+      const IconPackage = (p) => <SIcon {...p}><path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5Z" /><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9" /></SIcon>;
+      const IconInfo = (p) => <SIcon {...p}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></SIcon>;
       const IconInstagram = (p) => <SIcon {...p}><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><path d="M17.5 6.5h.01" /></SIcon>;
       const IconWhatsApp = ({ className }) => (
         <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" className={className} aria-hidden="true">
@@ -931,14 +935,16 @@
         return (
           <div className={"relative overflow-hidden rounded-2xl " + className}
             style={{ backgroundImage: img ? undefined : "linear-gradient(145deg," + event.gradient[0] + "," + event.gradient[1] + ")" }}>
+            {img && <img src={img} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+            {/* Poster asli sudah berisi logo & judul — cukup badge tanggal, tanpa teks tumpuk di atas gambar. */}
             {img ? (
-              <img src={img} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              <div className="absolute bottom-3 left-3 inline-flex items-center gap-2 rounded-xl bg-white/95 px-3 py-1.5 text-brand-dark shadow-sm sm:bottom-4 sm:left-4">
+                <span className="text-xl font-extrabold leading-none">{day}</span>
+                <span className="text-[11px] font-bold uppercase leading-tight tracking-wide">{month}</span>
+              </div>
             ) : (
-              <span className="pointer-events-none absolute -bottom-5 -right-3 select-none text-[7rem] leading-none opacity-15">{event.emoji}</span>
-            )}
-            <div className="absolute inset-0" style={{ backgroundImage: img
-              ? "linear-gradient(to top, rgba(0,0,0,0.6), rgba(0,0,0,0.05) 55%, transparent)"
-              : "radial-gradient(70% 55% at 18% 8%, rgba(255,255,255,0.25), transparent 60%)" }} />
+            <React.Fragment>
+            <div className="absolute inset-0" style={{ backgroundImage: "radial-gradient(70% 55% at 18% 8%, rgba(255,255,255,0.25), transparent 60%)" }} />
             <div className="relative flex h-full flex-col justify-between p-4 sm:p-5">
               <div className="flex items-start justify-between gap-2">
                 <span className="text-[11px] font-extrabold uppercase tracking-[0.22em] text-white/90">YAKESMA</span>
@@ -952,6 +958,8 @@
                 </div>
               </div>
             </div>
+            </React.Fragment>
+            )}
           </div>
         );
       }
@@ -989,7 +997,7 @@
             <div className="space-y-2" role="radiogroup">
               {packages.map((p) => {
                 const on = p.id === value;
-                const chips = [p.medal && "🏅 Medali", p.jersey && "👕 Jersey", !p.medal && !p.jersey && "🌳 Donasi Pohon Saja"].filter(Boolean);
+                const chips = [p.medal && "Medali", p.jersey && "Jersey", !p.medal && !p.jersey && "Tanpa racepack"].filter(Boolean);
                 return (
                   <button key={p.id} type="button" role="radio" aria-checked={on} onClick={() => onChange(p.id)}
                     className={"flex w-full items-start gap-3 rounded-xl border px-3.5 py-3 text-left transition " + (on ? "border-brand bg-brand-50 ring-2 ring-brand/20" : "border-brand-100 bg-white hover:border-brand")}>
@@ -1066,7 +1074,7 @@
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-brand-200 bg-white/60 py-16 text-center">
-                <p className="text-4xl">🔍</p>
+                <span className="mx-auto grid size-12 place-items-center rounded-full bg-brand-50 text-brand"><IconSearch className="size-6" /></span>
                 <p className="mt-3 font-semibold text-brand-dark">Event tidak ditemukan</p>
                 <p className="mt-1 text-sm text-ink/60">Coba kata kunci atau kategori lain.</p>
               </div>
@@ -1298,7 +1306,7 @@
 
             {claimed ? (
               <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-sm">
-                <p className="font-bold text-brand-dark">✓ Terima kasih, pembayaran Anda sedang diverifikasi</p>
+                <p className="flex items-center gap-1.5 font-bold text-brand-dark"><IconCheckCircle className="size-4 shrink-0 text-brand" />Terima kasih, pembayaran Anda sedang diverifikasi</p>
                 <p className="mt-1 text-ink/70">Tim kami mencocokkan pembayaran dengan mutasi QRIS. Konfirmasi lunas dikirim lewat email. Pesanan tidak akan dibatalkan selama proses verifikasi.</p>
               </div>
             ) : (
@@ -1318,8 +1326,8 @@
               </a>
             )}
             {!claimed && (
-              <p className="rounded-lg bg-orange/5 px-3 py-2 text-xs font-semibold text-orange">
-                ⏰ Bayar sebelum {deadlineText || "24 jam setelah mendaftar"}. Pesanan yang belum dibayar dibatalkan otomatis.
+              <p className="flex items-start gap-1.5 rounded-lg bg-orange/5 px-3 py-2 text-xs font-semibold text-orange">
+                <IconClock className="mt-px size-3.5 shrink-0" />Bayar sebelum {deadlineText || "24 jam setelah mendaftar"}. Pesanan yang belum dibayar dibatalkan otomatis.
               </p>
             )}
           </div>
@@ -1334,7 +1342,7 @@
           return (
             <div className="space-y-3">
               <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-sm">
-                <p className="font-bold text-brand-dark">✓ Pembayaran Anda sedang diverifikasi</p>
+                <p className="flex items-center gap-1.5 font-bold text-brand-dark"><IconCheckCircle className="size-4 shrink-0 text-brand" />Pembayaran Anda sedang diverifikasi</p>
                 <p className="mt-1 text-ink/70">
                   Tim kami mencocokkan pembayaran Anda. Status di halaman ini berubah menjadi <b>Lunas</b> setelah dikonfirmasi, dan
                   konfirmasinya juga dikirim lewat email. <b>Tidak perlu membayar lagi.</b>
@@ -1381,8 +1389,8 @@
                   transfer di chat yang sama dengan menyertakan kode <span className="font-mono font-bold text-brand-dark">{code}</span>.
                 </p>
               )}
-              <p className="mt-2 border-t border-orange/20 pt-2 text-xs font-semibold text-orange">
-                ⏰ Selesaikan pembayaran dalam 24 jam setelah mendaftar. Pesanan yang belum dibayar dibatalkan otomatis.
+              <p className="mt-2 flex items-start gap-1.5 border-t border-orange/20 pt-2 text-xs font-semibold text-orange">
+                <IconClock className="mt-px size-3.5 shrink-0" />Selesaikan pembayaran dalam 24 jam setelah mendaftar. Pesanan yang belum dibayar dibatalkan otomatis.
               </p>
             </div>
           </div>
@@ -1488,7 +1496,7 @@
         const area = pc.level === "desa" ? "Kel. " + titleCase(shipping.subdistrict) + ", Kec. " + titleCase(shipping.district) : "Kec. " + titleCase(shipping.district);
         const matches = pc.codes.indexOf(shipping.postalCode) !== -1;
         if (matches) {
-          return <p className="mt-1.5 text-xs font-semibold text-brand-700">✓ Kode pos sesuai {area}</p>;
+          return <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-brand-700"><IconCheck className="size-3.5" />Kode pos sesuai {area}</p>;
         }
         if (shipping.postalOverride) {
           return (
@@ -1527,7 +1535,7 @@
               {sizeChartImage && (
                 <button type="button" onClick={() => setShowSizeChart(true)}
                   className="shrink-0 text-xs font-semibold text-brand hover:underline">
-                  📏 Lihat Panduan Ukuran
+                  Lihat panduan ukuran
                 </button>
               )}
             </div>
@@ -1555,8 +1563,8 @@
                 onClick={() => setShowSizeChart(false)}>
                 <div className="relative max-h-[90vh] max-w-full" onClick={(e) => e.stopPropagation()}>
                   <button type="button" onClick={() => setShowSizeChart(false)} aria-label="Tutup"
-                    className="absolute -top-3 -right-3 grid size-9 place-items-center rounded-full bg-white text-lg font-bold text-ink shadow-lg">
-                    ✕
+                    className="absolute -top-3 -right-3 grid size-9 place-items-center rounded-full bg-white text-ink shadow-lg">
+                    <IconX className="size-4" />
                   </button>
                   <img src={sizeChartImage} alt="Panduan Ukuran Jersey" className="max-h-[90vh] max-w-full rounded-xl object-contain shadow-2xl" />
                 </div>
@@ -1725,10 +1733,10 @@
           : DONATION_PRESETS;
         return (
           <div className="space-y-2.5 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
-            <p className="text-sm font-bold text-brand-dark">
-              {(title && title.trim()) || (required ? "Donasi" : DEFAULT_DONATION_TITLE)}
-              {required && <span className="ml-1.5 rounded-full bg-orange/15 px-2 py-0.5 align-middle text-[11px] font-bold text-orange">Wajib · min {formatRupiah(min)}</span>}
-            </p>
+            <div>
+              <p className="text-sm font-bold text-brand-dark">{(title && title.trim()) || (required ? "Donasi" : DEFAULT_DONATION_TITLE)}</p>
+              {required && <p className="mt-0.5 text-xs font-semibold text-orange">Wajib, minimal {formatRupiah(min)} per pendaftaran</p>}
+            </div>
             {label && <p className="text-xs text-ink/60">{label}</p>}
             <div className="flex flex-wrap gap-2">
               {presets.map((p) => (
@@ -1757,8 +1765,8 @@
       function ModePicker({ event, value, onChange }) {
         const racepack = eventHasRacepack(event);
         const opts = [
-          { id: "offline", icon: "📍", title: "Offline", desc: "Datang ke " + (eventPlace(event) || "lokasi event") + (racepack ? ". Racepack diambil di RPC, tanpa ongkir." : ".") },
-          { id: "online", icon: "🏃", title: "Online (virtual)", desc: "Lari di mana saja" + (racepack ? ". Racepack dikirim ke alamat Anda (+ ongkir)." : ".") },
+          { id: "offline", icon: IconMapPin, title: "Offline", desc: "Datang ke " + (eventPlace(event) || "lokasi event") + (racepack ? ". Racepack diambil di RPC, tanpa ongkir." : ".") },
+          { id: "online", icon: IconGlobe, title: "Online (virtual)", desc: "Lari di mana saja" + (racepack ? ". Racepack dikirim ke alamat Anda (+ ongkir)." : ".") },
         ];
         return (
           <div className="mb-4">
@@ -1773,7 +1781,7 @@
                       {on && <span className="size-2.5 rounded-full bg-brand" />}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block font-bold text-brand-dark">{o.icon} {o.title}</span>
+                      <span className="flex items-center gap-1.5 font-bold text-brand-dark"><o.icon className="size-4 text-brand" />{o.title}</span>
                       <span className="mt-0.5 block text-xs text-ink/65">{o.desc}</span>
                     </span>
                   </button>
@@ -1785,15 +1793,20 @@
       }
 
       /** Info Race Pack Collection untuk peserta offline. */
+      /** Jadwal RPC: tanggal (bisa sebelum hari lari) + jam; `rpcSchedule` teks bebas untuk data lama. */
+      function rpcScheduleText(e) {
+        if (!e.rpcDate) return e.rpcSchedule || "";
+        return formatTanggalRange(e.rpcDate, e.rpcDateEnd && e.rpcDateEnd !== e.rpcDate ? e.rpcDateEnd : "") + (e.rpcTime ? ", " + e.rpcTime : "");
+      }
       function RpcDetails({ event, compact }) {
-        const rows = [["Lokasi", event.rpcLocation], ["Alamat", event.rpcAddress], ["Jadwal", event.rpcSchedule]].filter((r) => r[1]);
+        const rows = [["Lokasi", event.rpcLocation], ["Alamat", event.rpcAddress], ["Jadwal", rpcScheduleText(event)]].filter((r) => r[1]);
         if (!rows.length) {
           return <p className="text-xs text-ink/60">Lokasi & jadwal pengambilan racepack akan diumumkan panitia lewat WhatsApp/email.</p>;
         }
         return (
           <div className="space-y-1 text-xs text-ink/70">
             {rows.map((r) => <p key={r[0]}><span className="font-semibold text-brand-dark">{r[0]}:</span> {r[1]}</p>)}
-            {event.rpcMapsUrl && <a href={event.rpcMapsUrl} target="_blank" rel="noopener noreferrer" className="inline-block font-semibold text-brand hover:underline">📍 Buka di Google Maps</a>}
+            {event.rpcMapsUrl && <a href={event.rpcMapsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold text-brand hover:underline"><IconMapPin className="size-3.5" />Buka di Google Maps</a>}
             {!compact && event.rpcNotes && <p className="whitespace-pre-line">{event.rpcNotes}</p>}
           </div>
         );
@@ -1807,17 +1820,17 @@
         if (reg.racepackStatus === "picked_up" || reg.racepackStatus === "shipped") {
           return (
             <div className="rounded-xl bg-brand-50 px-3 py-2.5 text-xs text-brand-dark">
-              <p className="font-bold">{reg.racepackStatus === "picked_up" ? "✅ Racepack sudah diambil" : "📦 Racepack sudah dikirim"}</p>
+              <p className="flex items-center gap-1.5 font-bold"><IconCheckCircle className="size-4 text-brand" />{reg.racepackStatus === "picked_up" ? "Racepack sudah diambil" : "Racepack sudah dikirim"}</p>
               <p className="mt-0.5 text-ink/60">{tgl(reg.racepackAt)}{reg.racepackStatus === "shipped" && reg.racepackNote ? " · Resi " + reg.racepackNote : ""}</p>
             </div>
           );
         }
         if (reg.racepackMethod === "shipping") {
-          return <p className="rounded-xl bg-brand-50/60 px-3 py-2.5 text-xs text-ink/65">📦 Racepack dikirim ke alamat Anda via POS Indonesia{reg.paymentStatus === "pending_transfer" ? " setelah pembayaran lunas" : ""}.</p>;
+          return <p className="flex items-start gap-1.5 rounded-xl bg-brand-50/60 px-3 py-2.5 text-xs text-ink/65"><IconPackage className="mt-px size-3.5 shrink-0 text-brand" />Racepack dikirim ke alamat Anda via POS Indonesia{reg.paymentStatus === "pending_transfer" ? " setelah pembayaran lunas" : ""}.</p>;
         }
         return (
           <div className="space-y-1.5 rounded-xl border border-brand-100 bg-brand-50/60 px-3 py-2.5">
-            <p className="text-xs font-bold text-brand-dark">🎽 Ambil racepack di RPC (Race Pack Collection)</p>
+            <p className="flex items-center gap-1.5 text-xs font-bold text-brand-dark"><IconPackage className="size-3.5 text-brand" />Ambil racepack di RPC (Race Pack Collection)</p>
             {event && <RpcDetails event={event} compact />}
             <p className="text-xs text-ink/60">Tunjukkan kode tiket <b className="font-mono">{reg.code}</b>{reg.paymentStatus === "pending_transfer" ? " — racepack hanya untuk pesanan yang sudah lunas" : ""}.</p>
           </div>
@@ -2127,7 +2140,7 @@
           <form onSubmit={handleSubmit} className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
             {preLaunchActive && (
               <p className="mb-4 rounded-xl bg-gold/20 px-3 py-2 text-xs font-semibold text-brand-dark">
-                🚀 Pre-launch — Anda bisa mendaftar lebih awal. Pendaftaran resmi dibuka {formatTanggalPendek(event.registrationStart)}.
+                <span className="mr-1 rounded bg-brand-dark px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-white">Pre-launch</span>Anda bisa mendaftar lebih awal. Pendaftaran resmi dibuka {formatTanggalPendek(event.registrationStart)}.
               </p>
             )}
             {format === "hybrid" && <ModePicker event={event} value={mode} onChange={setMode} />}
@@ -2163,7 +2176,7 @@
                 <input value={refCode} onChange={(e) => setRefCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20))}
                   placeholder="Dari komunitas/teman yang mengajak Anda" autoCapitalize="characters"
                   className="w-full rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 font-mono text-sm uppercase outline-none transition placeholder:font-sans placeholder:normal-case focus:border-brand focus:ring-2 focus:ring-brand/20" />
-                {refCheck && refCheck.status === "ok" && <p className="mt-1 text-xs font-semibold text-brand-700">✓ Direferensikan oleh {refCheck.name}</p>}
+                {refCheck && refCheck.status === "ok" && <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-brand-700"><IconCheck className="size-3.5" />Direferensikan oleh {refCheck.name}</p>}
                 {refCheck && refCheck.status === "invalid" && <p className="mt-1 text-xs text-orange">Kode tidak dikenal untuk event ini — pendaftaran tetap bisa dilanjutkan tanpa kode.</p>}
               </div>
             </div>
@@ -2290,7 +2303,7 @@
             <section className="animate-in relative overflow-hidden rounded-3xl p-6 text-white shadow-lg shadow-brand/15 sm:p-9" style={{ backgroundImage: `linear-gradient(135deg,${SITE.colors.green},${SITE.colors.dark})` }}>
               <div className="pointer-events-none absolute inset-0" style={{ backgroundImage: "radial-gradient(50% 60% at 85% 10%, rgba(246,183,0,0.35), transparent 60%), radial-gradient(45% 55% at 8% 100%, rgba(255,255,255,0.14), transparent 60%)" }} />
               <div className="relative max-w-xl">
-                <p className="text-sm font-semibold text-white/85">Assalamu'alaikum 👋</p>
+                <p className="text-sm font-semibold text-white/85">Assalamu'alaikum</p>
                 <h1 className="mt-1 text-2xl font-extrabold leading-tight sm:text-4xl">Selamat datang di {SITE.name}</h1>
                 <p className="mt-3 text-sm leading-relaxed text-white/90 sm:text-base">{SITE.intro}</p>
                 <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -2480,11 +2493,11 @@
                   <Section title="Racepack">
                     <div className="space-y-3 rounded-2xl border border-brand-50 bg-white p-4 text-sm text-ink/75">
                       <div>
-                        <p className="font-bold text-brand-dark">🎽 {eventFormat(event) === "hybrid" ? "Peserta offline: ambil di RPC" : "Ambil di RPC (Race Pack Collection)"}</p>
+                        <p className="flex items-center gap-1.5 font-bold text-brand-dark"><IconMapPin className="size-4 text-brand" />{eventFormat(event) === "hybrid" ? "Peserta offline: ambil di RPC (Race Pack Collection)" : "Ambil di RPC (Race Pack Collection)"}</p>
                         <div className="mt-1.5"><RpcDetails event={event} /></div>
                       </div>
                       {eventFormat(event) === "hybrid" && (
-                        <p><span className="font-bold text-brand-dark">📦 Peserta online:</span> racepack dikirim ke alamat yang diisi saat mendaftar via POS Indonesia (ongkir ditanggung peserta).</p>
+                        <p className="flex items-start gap-1.5"><IconPackage className="mt-0.5 size-4 shrink-0 text-brand" /><span><span className="font-bold text-brand-dark">Peserta online:</span> racepack dikirim ke alamat yang diisi saat mendaftar via POS Indonesia (ongkir ditanggung peserta).</span></p>
                       )}
                     </div>
                   </Section>
@@ -2502,7 +2515,7 @@
               <aside className="space-y-4 lg:sticky lg:top-20 lg:col-start-3 lg:self-start">
                 {finished ? (
                   <div className="rounded-2xl border border-brand-100 bg-white p-5 text-center shadow-sm">
-                    <span className="mx-auto grid size-12 place-items-center rounded-full bg-brand-50 text-2xl">🏁</span>
+                    <span className="mx-auto grid size-12 place-items-center rounded-full bg-brand-50 text-brand"><IconCheckCircle className="size-6" /></span>
                     <p className="mt-3 font-extrabold text-brand-dark">Event Sudah Terlaksana</p>
                     <p className="mt-1.5 text-sm text-ink/60">
                       Terima kasih untuk {terisi.toLocaleString("id-ID")} peserta yang sudah berpartisipasi. Nantikan event YAKESMA berikutnya!
@@ -3273,11 +3286,11 @@
           <form onSubmit={submit} className="space-y-4">
             <div className="rounded-xl border border-gold/40 bg-gold/10 p-3.5 text-sm">
               <p className="font-bold text-brand-dark">Syarat bukti lari</p>
-              <ul className="mt-1.5 space-y-1 text-ink/70">
-                <li>✓ Satu kali lari (single run) minimal <b>{ev.runMinKm} km</b></li>
-                <li>✓ Dilakukan pada {formatTanggalRange(ev.date, ev.dateEnd)}</li>
-                <li>✓ Screenshot memperlihatkan <b>jarak, waktu tempuh, dan tanggal</b></li>
-                <li>✓ Data yang diisi sama dengan screenshot</li>
+              <ul className="mt-1.5 list-disc space-y-1 pl-5 text-ink/70 marker:text-brand">
+                <li>Satu kali lari (single run) minimal <b>{ev.runMinKm} km</b></li>
+                <li>Dilakukan pada {formatTanggalRange(ev.date, ev.dateEnd)}</li>
+                <li>Screenshot memperlihatkan <b>jarak, waktu tempuh, dan tanggal</b></li>
+                <li>Data yang diisi sama dengan screenshot</li>
               </ul>
             </div>
 
@@ -3412,7 +3425,7 @@
             <div className="space-y-4 p-5">
               {justSaved && accepted && (
                 <div className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-dark">
-                  <b>Bukti lari tersimpan! 🎉</b> Anda berada di peringkat <b>#{submission.rank}</b> dari {access.totalFinishers} finisher.
+                  <b>Bukti lari tersimpan.</b> Anda berada di peringkat <b>#{submission.rank}</b> dari {access.totalFinishers} finisher.
                 </div>
               )}
 
@@ -3506,10 +3519,11 @@
         const rows = showAll ? board.entries : board.entries.slice(0, 20);
         const myRanks = new Set(myEntries.map((m) => m.rank));
         const outside = myEntries.filter((m) => m.rank > rows.length);
-        const medal = { 1: "🥇", 2: "🥈", 3: "🥉" };
+        // Tiga besar: lingkaran warna emas/perak/perunggu, bukan emoji medali.
+        const medal = { 1: "#d4a017", 2: "#9aa5b1", 3: "#b8733d" };
         const Row = ({ r, mine, name }) => (
           <li className={"flex items-center gap-3 px-4 py-3 " + (mine ? "bg-brand-50" : "")}>
-            <span className="grid w-9 shrink-0 place-items-center text-center font-extrabold text-brand-dark">{medal[r.rank] ? <span className="text-xl">{medal[r.rank]}</span> : "#" + r.rank}</span>
+            <span className="grid w-9 shrink-0 place-items-center text-center font-extrabold text-brand-dark">{medal[r.rank] ? <span className="grid size-7 place-items-center rounded-full text-xs text-white" style={{ background: medal[r.rank] }}>{r.rank}</span> : "#" + r.rank}</span>
             <div className="min-w-0 flex-1">
               <p className="flex items-center gap-1.5 truncate font-bold text-brand-dark">{name || r.name}{mine && <span className="shrink-0 rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">Anda</span>}</p>
               <p className="text-xs text-ink/50">{formatKm(r.distanceKm)} · {formatDurasi(r.durationSeconds)}</p>
@@ -3652,7 +3666,7 @@
       function NotFound() {
         return (
           <Container className="py-20 text-center">
-            <p className="text-6xl">🧭</p>
+            <p className="text-6xl font-extrabold tracking-tight text-brand-200">404</p>
             <h1 className="mt-4 text-2xl font-extrabold text-brand-dark">Halaman tidak ditemukan</h1>
             <p className="mx-auto mt-2 max-w-sm text-ink/60">Maaf, halaman yang Anda cari tidak tersedia atau telah dipindahkan.</p>
             <Link to="/" className="mt-6 inline-flex rounded-full bg-brand px-6 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Kembali ke Beranda</Link>
@@ -3761,7 +3775,7 @@
                 )}
                 {(data.paymentStatus === "paid" || data.paymentStatus === "free") && (
                   <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-sm">
-                    <p className="font-bold text-brand-dark">✓ {data.paymentStatus === "paid" ? "Pembayaran sudah dikonfirmasi" : "Pendaftaran gratis — tidak perlu membayar"}</p>
+                    <p className="flex items-center gap-1.5 font-bold text-brand-dark"><IconCheckCircle className="size-4 shrink-0 text-brand" />{data.paymentStatus === "paid" ? "Pembayaran sudah dikonfirmasi" : "Pendaftaran gratis — tidak perlu membayar"}</p>
                     <p className="mt-1 text-ink/70">Anda resmi terdaftar. Jazakallahu khairan!</p>
                   </div>
                 )}
