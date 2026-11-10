@@ -1106,7 +1106,275 @@
 
       function sizesOf(r) { return Array.isArray(r.shirt_sizes) ? r.shirt_sizes : (r.shirt_size ? [r.shirt_size] : []); }
 
-      function PendaftaranPanel({ initialAffiliate }) {
+      /* ============ INPUT PESERTA KOLEKTIF (komunitas offline) ============ */
+      const emptyManualRow = () => ({ name: "", phone: "", email: "", quantity: 1, packageId: "", participationMode: "", shirtSizes: "", totalAmount: "", note: "" });
+      const MANUAL_COLS = ["name", "phone", "email", "quantity", "packageId", "shirtSizes", "participationMode", "totalAmount", "note"];
+
+      // Tempelan dari Excel/Google Sheets (kolom dipisah tab) atau teks dipisah titik koma.
+      function parseManualPaste(text) {
+        const lines = text.split(/\r?\n/).filter((l) => l.trim());
+        if (!lines.length) return [];
+        const sep = lines.some((l) => l.includes("\t")) ? "\t" : ";";
+        const rows = lines.map((l) => l.split(sep).map((c) => c.trim()));
+        if (/^nama/i.test(rows[0][0] || "")) rows.shift();
+        return rows.map((cells) => {
+          const r = emptyManualRow();
+          MANUAL_COLS.forEach((k, i) => { if (cells[i] != null && cells[i] !== "") r[k] = cells[i]; });
+          r.quantity = parseInt(String(r.quantity).replace(/\D/g, ""), 10) || 1;
+          r.phone = String(r.phone).replace(/\D/g, "");
+          const m = String(r.participationMode).toLowerCase();
+          r.participationMode = m.startsWith("on") || m.startsWith("vir") ? "online" : m.startsWith("off") ? "offline" : "";
+          r.totalAmount = String(r.totalAmount).replace(/\D/g, "");
+          return r;
+        });
+      }
+
+      function ManualEntryPanel({ events, onClose, onSaved }) {
+        const usable = (events || []).filter((e) => e.slug);
+        const [eventSlug, setEventSlug] = useState(usable.length ? usable[0].slug : "");
+        const [community, setCommunity] = useState("");
+        const [paymentStatus, setPaymentStatus] = useState("paid");
+        const [defaultMode, setDefaultMode] = useState("offline");
+        const [defaultPackageId, setDefaultPackageId] = useState("");
+        const [shippingAddress, setShippingAddress] = useState("");
+        const [affiliateCode, setAffiliateCode] = useState("");
+        const [rows, setRows] = useState([emptyManualRow()]);
+        const [paste, setPaste] = useState("");
+        const [showPaste, setShowPaste] = useState(false);
+        const [check, setCheck] = useState(null); // hasil periksa terakhir { key, summary, rows }
+        const [saved, setSaved] = useState([]); // baris yang sudah tersimpan (punya kode tiket)
+        const [busy, setBusy] = useState(false);
+        const [error, setError] = useState("");
+
+        const ev = usable.find((e) => e.slug === eventSlug) || null;
+        const hybrid = ev ? eventFormat(ev) === "hybrid" : false;
+        const packages = ev && Array.isArray(ev.packages) ? ev.packages.filter((p) => p.id && p.name) : [];
+        const anyShipping = ev && (eventFormat(ev) === "online" || hybrid);
+
+        function payload(dryRun, list) {
+          return {
+            eventSlug, community: community.trim(), paymentStatus, defaultMode: hybrid ? defaultMode : "", defaultPackageId,
+            shippingAddress: shippingAddress.trim(), affiliateCode: affiliateCode.trim(), dryRun,
+            rows: (list || rows).map((r) => Object.assign({}, r, { totalAmount: String(r.totalAmount).trim() === "" ? null : r.totalAmount })),
+          };
+        }
+        const currentKey = JSON.stringify(payload(false));
+        const checked = check && check.key === currentKey;
+
+        function setRow(i, patch) { setRows((list) => list.map((r, j) => (j === i ? Object.assign({}, r, patch) : r))); }
+        function addPasted() {
+          const parsed = parseManualPaste(paste);
+          if (!parsed.length) { alert("Tidak ada baris yang terbaca."); return; }
+          setRows((list) => list.filter((r) => r.name.trim()).concat(parsed));
+          setPaste(""); setShowPaste(false);
+        }
+
+        async function send(dryRun) {
+          setError("");
+          if (!eventSlug) { setError("Pilih event."); return; }
+          if (!community.trim()) { setError("Isi nama komunitas/sumber pendaftaran."); return; }
+          // Baris kosong dibuang dulu supaya nomor baris di hasil periksa sama dengan tabel.
+          const filled = rows.filter((r) => r.name.trim() || r.phone || r.email);
+          if (!filled.length) { setError("Isi minimal satu peserta."); return; }
+          if (filled.length !== rows.length) setRows(filled);
+          const key = JSON.stringify(payload(false, filled));
+          setBusy(true);
+          const res = await apiFetch("/api/registrations/manual", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload(dryRun, filled)),
+          });
+          const body = await res.json().catch(() => ({}));
+          setBusy(false);
+          if (res.status === 401) { location.reload(); return; }
+          if (!res.ok) { setError(body.error || "Gagal memproses data."); return; }
+          if (dryRun) { setCheck({ key, summary: body.summary, rows: body.rows }); return; }
+          // Baris tersimpan dipindah ke daftar hasil; baris gagal tetap di editor beserta alasannya.
+          const ok = body.rows.filter((r) => r.ticketCode);
+          const failed = body.rows.filter((r) => !r.ticketCode);
+          setSaved((s) => s.concat(ok));
+          const left = failed.map((r) => filled[r.index]);
+          setRows(left.length ? left : [emptyManualRow()]);
+          setCheck(failed.length ? { key: "stale", summary: null, rows: failed.map((r, i) => Object.assign({}, r, { index: i })) } : null);
+          if (ok.length) onSaved();
+        }
+
+        function copySaved() {
+          const text = (ev ? ev.title + " — " : "") + "Kolektif " + community.trim() + "\n" +
+            saved.map((r, i) => (i + 1) + ". " + r.name + " — " + r.ticketCode + (r.quantity > 1 ? " (" + r.quantity + " peserta)" : "")).join("\n");
+          navigator.clipboard.writeText(text).then(() => alert("Daftar kode tiket disalin."), () => alert("Gagal menyalin."));
+        }
+
+        const reportOf = (i) => (check && check.rows ? check.rows.find((r) => r.index === i) : null);
+        const cell = "w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs outline-none focus:border-brand";
+
+        return (
+          <div className="space-y-4 rounded-xl border border-brand-100 bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-brand-dark">Tambah peserta kolektif</h3>
+                <p className="text-xs text-ink/55">Untuk peserta yang mendaftar & membayar lewat komunitas/koordinator offline. Langsung tercatat Lunas, ikut kuota event, dan tidak mengirim email/WhatsApp ke peserta.</p>
+              </div>
+              <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Tutup</button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div>
+                <Label>Event</Label>
+                <select className={inputCls} value={eventSlug} onChange={(e) => { setEventSlug(e.target.value); setDefaultPackageId(""); }}>
+                  {usable.map((e) => <option key={e.slug} value={e.slug}>{e.title}</option>)}
+                </select>
+              </div>
+              <Text label="Nama komunitas / sumber" value={community} onChange={setCommunity} placeholder="mis. Komunitas SEKAR JICT" hint="Tercatat di kolom status (via Admin) & catatan." />
+              <div>
+                <Label>Status pembayaran</Label>
+                <select className={inputCls} value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)}>
+                  <option value="paid">Lunas (sudah dibayar lewat komunitas)</option>
+                  <option value="free">Gratis</option>
+                </select>
+              </div>
+              {packages.length > 0 && (
+                <div>
+                  <Label>Paket bawaan</Label>
+                  <select className={inputCls} value={defaultPackageId} onChange={(e) => setDefaultPackageId(e.target.value)}>
+                    <option value="">{packages.length === 1 ? packages[0].name : "— pilih per baris —"}</option>
+                    {packages.map((p) => <option key={p.id} value={p.id}>{p.name} · {formatRupiah(p.price)}{p.active ? "" : " (nonaktif)"}</option>)}
+                  </select>
+                </div>
+              )}
+              {hybrid && (
+                <div>
+                  <Label>Cara ikut bawaan</Label>
+                  <select className={inputCls} value={defaultMode} onChange={(e) => setDefaultMode(e.target.value)}>
+                    <option value="offline">Offline (racepack diambil di RPC)</option>
+                    <option value="online">Online (racepack dikirim)</option>
+                  </select>
+                </div>
+              )}
+              <Text label="Kode affiliate (opsional)" value={affiliateCode} onChange={(v) => setAffiliateCode(v.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="mis. JICT" hint="Kalau komunitas ini affiliate, pesertanya ikut terhitung di dashboard-nya." />
+              {anyShipping && (
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <Text label="Alamat kirim racepack kolektif (opsional, peserta online)" value={shippingAddress} onChange={setShippingAddress}
+                    placeholder="mis. Kantor JICT, Jl. Digul No.1, Tanjung Priok, Jakarta Utara 14310 (u.p. Koordinator)" hint="Dipakai untuk semua peserta online di daftar ini (racepack dikirim kolektif ke alamat ini)." />
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => setShowPaste((v) => !v)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">{showPaste ? "Batal tempel" : "Tempel dari Excel / Sheets"}</button>
+              <button type="button" onClick={() => setRows((l) => l.concat(emptyManualRow()))} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">+ Baris</button>
+              <span className="text-xs text-ink/45">{rows.length} baris</span>
+            </div>
+            {showPaste && (
+              <div className="space-y-2 rounded-lg bg-slate-50 p-3">
+                <p className="text-xs text-ink/60">Salin sel dari spreadsheet dengan urutan kolom: <b>Nama · WhatsApp · Email · Jumlah · Paket · Ukuran jersey · Cara ikut · Total dibayar · Catatan</b>. Kolom boleh kosong, baris judul dilewati otomatis. Ukuran jersey untuk beberapa peserta dipisah koma (mis. <span className="font-mono">L, M</span>).</p>
+                <textarea value={paste} onChange={(e) => setPaste(e.target.value)} rows={6} className={inputCls + " font-mono text-xs"} placeholder={"Budi Santoso\t081234567890\t\t2\tPaket C\tL, M\toffline"} />
+                <button type="button" onClick={addPasted} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-600">Masukkan ke tabel</button>
+              </div>
+            )}
+
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <table className="w-full min-w-[900px] text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-[10px] uppercase tracking-wide text-ink/45">
+                    <th className="px-2 py-1.5 w-6">#</th>
+                    <th className="px-2 py-1.5">Nama*</th>
+                    <th className="px-2 py-1.5">WhatsApp</th>
+                    <th className="px-2 py-1.5">Email</th>
+                    <th className="px-2 py-1.5 w-14">Jml</th>
+                    {packages.length > 0 && <th className="px-2 py-1.5">Paket</th>}
+                    {hybrid && <th className="px-2 py-1.5">Cara ikut</th>}
+                    <th className="px-2 py-1.5">Ukuran jersey</th>
+                    <th className="px-2 py-1.5">Total dibayar</th>
+                    <th className="px-2 py-1.5">Catatan</th>
+                    <th className="px-2 py-1.5 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => {
+                    const rep = reportOf(i);
+                    return (
+                      <React.Fragment key={i}>
+                        <tr className={"border-b border-slate-100 align-top " + (rep && !rep.ok ? "bg-orange/5" : "")}>
+                          <td className="px-2 py-1.5 text-ink/40">{i + 1}</td>
+                          <td className="px-2 py-1.5"><input className={cell} value={r.name} onChange={(e) => setRow(i, { name: e.target.value })} /></td>
+                          <td className="px-2 py-1.5"><input className={cell} value={r.phone} inputMode="numeric" onChange={(e) => setRow(i, { phone: e.target.value.replace(/\D/g, "").slice(0, 15) })} placeholder="opsional" /></td>
+                          <td className="px-2 py-1.5"><input className={cell} value={r.email} onChange={(e) => setRow(i, { email: e.target.value.trim() })} placeholder="opsional" /></td>
+                          <td className="px-2 py-1.5"><input className={cell} type="number" min="1" max="20" value={r.quantity} onChange={(e) => setRow(i, { quantity: parseInt(e.target.value, 10) || 1 })} /></td>
+                          {packages.length > 0 && (
+                            <td className="px-2 py-1.5">
+                              <select className={cell} value={packages.some((p) => p.id === r.packageId) ? r.packageId : r.packageId ? "__raw" : ""} onChange={(e) => setRow(i, { packageId: e.target.value })}>
+                                <option value="">(bawaan)</option>
+                                {r.packageId && !packages.some((p) => p.id === r.packageId) && <option value="__raw">{r.packageId}</option>}
+                                {packages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                              </select>
+                            </td>
+                          )}
+                          {hybrid && (
+                            <td className="px-2 py-1.5">
+                              <select className={cell} value={r.participationMode} onChange={(e) => setRow(i, { participationMode: e.target.value })}>
+                                <option value="">(bawaan)</option>
+                                <option value="offline">Offline</option>
+                                <option value="online">Online</option>
+                              </select>
+                            </td>
+                          )}
+                          <td className="px-2 py-1.5"><input className={cell} value={r.shirtSizes} onChange={(e) => setRow(i, { shirtSizes: e.target.value.toUpperCase() })} placeholder="mis. L, M" /></td>
+                          <td className="px-2 py-1.5"><input className={cell} value={r.totalAmount} inputMode="numeric" onChange={(e) => setRow(i, { totalAmount: e.target.value.replace(/\D/g, "") })} placeholder="harga paket" /></td>
+                          <td className="px-2 py-1.5"><input className={cell} value={r.note} onChange={(e) => setRow(i, { note: e.target.value })} /></td>
+                          <td className="px-2 py-1.5">
+                            <button type="button" title="Hapus baris" onClick={() => setRows((l) => (l.length > 1 ? l.filter((_, j) => j !== i) : [emptyManualRow()]))} className="grid h-6 w-6 place-items-center rounded text-orange hover:bg-orange/10"><TrashIcon /></button>
+                          </td>
+                        </tr>
+                        {rep && (rep.error || rep.warnings.length > 0 || rep.ok) && (
+                          <tr className="border-b border-slate-100">
+                            <td></td>
+                            <td colSpan={20} className="px-2 pb-1.5 text-[11px]">
+                              {rep.error ? <span className="font-semibold text-orange">{rep.error}</span>
+                                : <span className="text-brand-dark">Siap: {rep.quantity} peserta{rep.packageName ? " · " + rep.packageName : ""}{hybrid ? " · " + rep.participationMode : ""} · {formatRupiah(rep.totalAmount)}</span>}
+                              {rep.warnings.map((w, k) => <span key={k} className="ml-2 text-amber-700">· {w}</span>)}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {error && <p className="rounded-lg bg-orange/10 px-3 py-2 text-sm text-orange">{error}</p>}
+            {checked && check.summary && (
+              <p className="text-sm text-ink/70">
+                <b>{check.summary.okRows}</b> dari {check.summary.rows} baris siap disimpan · {check.summary.participants} peserta · total {formatRupiah(check.summary.totalAmount)}
+                {check.summary.okRows < check.summary.rows && <span className="text-orange"> · perbaiki atau hapus baris yang bermasalah, baris itu tidak ikut disimpan</span>}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={busy} onClick={() => send(true)} className="rounded-lg border border-brand px-4 py-2 text-sm font-bold text-brand hover:bg-brand-50 disabled:opacity-50">{busy && !checked ? "Memeriksa…" : "Periksa data"}</button>
+              <button type="button" disabled={busy || !checked || !check.summary || check.summary.okRows === 0}
+                onClick={() => { if (confirm("Simpan " + check.summary.okRows + " pendaftaran (" + check.summary.participants + " peserta) dari " + community.trim() + " sebagai " + (paymentStatus === "free" ? "Gratis" : "Lunas") + "?")) send(false); }}
+                className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-600 disabled:opacity-40">
+                {busy && checked ? "Menyimpan…" : checked && check.summary ? "Simpan " + check.summary.okRows + " baris" : "Simpan"}
+              </button>
+              {!checked && <span className="self-center text-xs text-ink/45">Periksa data dulu sebelum menyimpan.</span>}
+            </div>
+
+            {saved.length > 0 && (
+              <div className="space-y-2 rounded-lg border border-brand-100 bg-brand-50/50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-bold text-brand-dark">{saved.length} pendaftaran tersimpan</p>
+                  <button type="button" onClick={copySaved} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Salin daftar kode tiket</button>
+                </div>
+                <ol className="grid gap-x-4 gap-y-0.5 text-xs sm:grid-cols-2">
+                  {saved.map((r, i) => <li key={r.ticketCode}>{i + 1}. {r.name} — <span className="font-mono font-semibold">{r.ticketCode}</span>{r.quantity > 1 ? " (" + r.quantity + " peserta)" : ""}</li>)}
+                </ol>
+                <p className="text-[11px] text-ink/50">Peserta bisa melihat tiketnya di menu Event Saya dengan nomor WhatsApp atau kode tiket ini.</p>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      function PendaftaranPanel({ initialAffiliate, events }) {
         const [items, setItems] = useState([]);
         const [total, setTotal] = useState(0);
         const [q, setQ] = useState("");
@@ -1119,6 +1387,7 @@
         const [busyId, setBusyId] = useState(null);
         const [expandedId, setExpandedId] = useState(null);
         const [page, setPage] = useState(1);
+        const [adding, setAdding] = useState(false);
         const PAGE_SIZE = 50;
         const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -1207,9 +1476,11 @@
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-lg font-extrabold text-brand-dark">Pendaftaran <span className="text-ink/40">({total})</span></h2>
               <div className="flex items-center gap-2">
+                {!adding && <button onClick={() => setAdding(true)} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-600">+ Tambah peserta</button>}
                 <button onClick={ekspor} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Ekspor CSV</button>
               </div>
             </div>
+            {adding && <ManualEntryPanel events={events} onClose={() => setAdding(false)} onSaved={() => load(1)} />}
 
             <div className="flex flex-wrap gap-2">
               <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load(1)}
@@ -2075,7 +2346,7 @@
               ) : tab === "event" ? (
                 <EventList data={data} setData={setData} onEdit={(i) => setEditing(i)} onNew={() => setEditing("new")} />
               ) : tab === "pendaftaran" ? (
-                <PendaftaranPanel key={regAffiliate} initialAffiliate={regAffiliate} />
+                <PendaftaranPanel key={regAffiliate} initialAffiliate={regAffiliate} events={data.events} />
               ) : tab === "affiliate" ? (
                 <AffiliatePanel events={data.events} onShowRegistrations={(code) => { setRegAffiliate(code); setTab("pendaftaran"); }} />
               ) : tab === "hasil-lari" ? (
