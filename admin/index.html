@@ -1411,14 +1411,14 @@
       }
 
       /* ============ AFFILIATE (pembawa peserta: komunitas/ambassador) ============ */
-      const emptyAffiliate = { code: "", name: "", phone: "", eventSlug: "", commissionType: "none", commissionAmount: 0, notes: "" };
+      const emptyAffiliate = { code: "", name: "", phone: "", email: "", eventSlug: "", commissionType: "none", commissionAmount: 0, notes: "" };
       function affiliateReward(a) {
         return a.commission_type === "fixed" ? formatRupiah(a.commission_amount) + " / peserta lunas" : "Hanya pelacakan";
       }
       function AffiliateForm({ initial, events, onSaved, onCancel }) {
         const editing = !!initial.id;
         const [f, setF] = useState(editing ? {
-          code: initial.code, name: initial.name, phone: initial.phone || "", eventSlug: initial.event_slug || "",
+          code: initial.code, name: initial.name, phone: initial.phone || "", email: initial.email || "", eventSlug: initial.event_slug || "",
           commissionType: initial.commission_type, commissionAmount: initial.commission_amount, notes: initial.notes || "",
         } : emptyAffiliate);
         const [saving, setSaving] = useState(false);
@@ -1428,7 +1428,7 @@
         async function save(e) {
           e.preventDefault();
           setSaving(true); setError("");
-          const payload = { name: f.name, phone: f.phone, eventSlug: f.eventSlug, commissionType: f.commissionType,
+          const payload = { name: f.name, phone: f.phone, email: f.email.trim(), eventSlug: f.eventSlug, commissionType: f.commissionType,
             commissionAmount: f.commissionType === "fixed" ? f.commissionAmount : 0, notes: f.notes };
           const res = editing
             ? await apiFetch("/api/admin/affiliates/" + initial.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
@@ -1451,6 +1451,8 @@
               )}
               <Text label="Nama Affiliate" value={f.name} onChange={set("name")} placeholder="Nama komunitas / orang" />
               <Text label="WhatsApp (opsional)" value={f.phone} onChange={(v) => set("phone")(v.replace(/\D/g, "").slice(0, 15))} placeholder="08xxxxxxxxxx" hint="Untuk tombol kirim link lewat WhatsApp." />
+              <Text label="Email (opsional)" type="email" value={f.email} onChange={set("email")} placeholder="nama@email.com"
+                hint="Supaya affiliate bisa masuk sendiri lewat menu Akun → Dashboard Affiliate di situs; link dikirim ke email ini." />
               <div>
                 <Label>Berlaku untuk</Label>
                 <select className={inputCls} value={f.eventSlug} onChange={(e) => set("eventSlug")(e.target.value)}>
@@ -1518,13 +1520,14 @@
           const phone = (a.phone || "").replace(/^0/, "62");
           const text = "Assalamu'alaikum " + a.name + ",\n\nTerima kasih sudah bersedia menjadi affiliate event LAZNAS YAKESMA. Kode affiliate Anda: " + a.code +
             "\n\nBuka halaman berikut untuk mengambil link pendaftaran yang bisa dibagikan dan memantau jumlah pendaftar:\n" + a.dashboardUrl +
-            "\n\nMohon link halaman ini tidak dibagikan ke orang lain.";
+            "\n\nMohon link halaman ini tidak dibagikan ke orang lain." +
+            (a.email ? "\n\nLain kali Anda juga bisa membukanya sendiri dari menu Akun → Dashboard Affiliate di situs, dengan email " + a.email + "." : "");
           return "https://wa.me/" + phone + "?text=" + encodeURIComponent(text);
         }
 
         function ekspor() {
-          const head = ["Kode", "Nama", "WhatsApp", "Berlaku untuk", "Imbalan", "Nominal per peserta", "Pesanan aktif", "Peserta", "Peserta lunas", "Menunggu bayar", "Komisi", "Aktif"];
-          const rows = items.map((a) => [a.code, a.name, a.phone || "", a.event_slug ? eventTitle(a.event_slug) : "Semua event",
+          const head = ["Kode", "Nama", "WhatsApp", "Email", "Berlaku untuk", "Imbalan", "Nominal per peserta", "Pesanan aktif", "Peserta", "Peserta lunas", "Menunggu bayar", "Komisi", "Aktif"];
+          const rows = items.map((a) => [a.code, a.name, a.phone || "", a.email || "", a.event_slug ? eventTitle(a.event_slug) : "Semua event",
             a.commission_type === "fixed" ? "Komisi tetap" : "Pelacakan", a.commission_amount, a.stats.registrations, a.stats.participants,
             a.stats.paidParticipants, a.stats.pendingParticipants, a.stats.commission, a.active ? "Ya" : "Tidak"]);
           const csv = "\uFEFF" + [head].concat(rows).map((r) => r.map(csvCell).join(",")).join("\n") + "\n";
@@ -1572,7 +1575,7 @@
                           {!a.active && <span className="ml-1 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-ink/50">Nonaktif</span>}
                         </p>
                         <p className="mt-0.5 text-xs text-ink/50">
-                          {a.event_slug ? eventTitle(a.event_slug) : "Semua event"} · {affiliateReward(a)}{a.phone ? " · " + a.phone : ""}
+                          {a.event_slug ? eventTitle(a.event_slug) : "Semua event"} · {affiliateReward(a)}{a.phone ? " · " + a.phone : ""}{a.email ? " · " + a.email : ""}
                         </p>
                         {a.notes && <p className="mt-0.5 text-xs italic text-ink/45">{a.notes}</p>}
                       </div>
