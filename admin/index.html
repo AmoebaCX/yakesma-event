@@ -649,6 +649,17 @@
                   />
                 </div>
               )}
+              {(ev.requiresShipping || (ev.packages || []).some((p) => p.jersey)) && (
+                <div className="sm:col-span-2 rounded-xl border border-slate-200 p-4">
+                  <Toggle label="Pilihan lengan jersey (pendek / panjang)" checked={!!ev.sleeveChoice} onChange={(v) => set("sleeveChoice", v)} />
+                  <p className="mt-1 text-xs text-ink/45">
+                    {ev.sleeveChoice
+                      ? "Setiap peserta memilih jersey lengan pendek atau panjang. Harga sama."
+                      : "Matikan bila jersey event ini hanya satu model."}{" "}
+                    Ukuran 2XL ke atas: tambahan {formatRupiah(SHIRT_BIG_SURCHARGE)} per jersey.
+                  </p>
+                </div>
+              )}
               <div className="sm:col-span-2 space-y-3 rounded-xl border border-slate-200 p-4">
                 <Toggle label="Kolom donasi tambahan" checked={!!ev.donationEnabled}
                   onChange={(v) => setEv((p) => ({ ...p, donationEnabled: v }))} />
@@ -1082,7 +1093,16 @@
 
       // Sinkron dengan yakesma-api/src/lib/validate.ts dan yakesma-site/index.html —
       // dipakai untuk menampilkan rincian biaya di panel Detail pendaftaran.
-      const SHIRT_SIZE_SURCHARGE = { S: 0, M: 0, L: 0, XL: 0, "2XL": 25000, "3XL": 50000, "4XL": 75000 };
+      // Tarif sejak 11 Nov 2026: rata Rp30.000 per jersey 2XL ke atas. Pendaftaran menyimpan nominalnya sendiri
+      // (shirt_surcharge); tabel lama hanya untuk pendaftaran sebelum kolom itu ada.
+      const SHIRT_BIG_SURCHARGE = 30000;
+      const SHIRT_SIZE_SURCHARGE_LAMA = { S: 0, M: 0, L: 0, XL: 0, "2XL": 25000, "3XL": 50000, "4XL": 75000 };
+      const SLEEVE_LABEL = { pendek: "lengan pendek", panjang: "lengan panjang" };
+      /** "L (lengan panjang), 2XL (lengan pendek)" — ukuran + model lengan bila tercatat. */
+      function jerseyText(r) {
+        const sleeves = Array.isArray(r.shirt_sleeves) ? r.shirt_sleeves : [];
+        return sizesOf(r).map((sz, i) => sz + (sleeves[i] ? " (" + (SLEEVE_LABEL[sleeves[i]] || sleeves[i]) + ")" : "")).join(", ");
+      }
       const REG_STATUS_LABEL = {
         free: { text: "Gratis", cls: "bg-brand-50 text-brand-700" },
         pending_transfer: { text: "Menunggu Konfirmasi", cls: "bg-gold/20 text-orange" },
@@ -1461,7 +1481,7 @@
         async function aturRacepack(r, next) {
           let note = null;
           if (next === "picked_up") {
-            const v = prompt("Racepack " + r.ticket_code + " — " + r.name + " (" + r.quantity + " peserta" + (sizesOf(r).length ? ", jersey " + sizesOf(r).join(", ") : "") + ").\n\nNama pengambil (kosongkan jika peserta sendiri):", "");
+            const v = prompt("Racepack " + r.ticket_code + " — " + r.name + " (" + r.quantity + " peserta" + (sizesOf(r).length ? ", jersey " + jerseyText(r) : "") + ").\n\nNama pengambil (kosongkan jika peserta sendiri):", "");
             if (v === null) return;
             note = v.trim() || null;
           } else if (next === "shipped") {
@@ -1557,7 +1577,9 @@
                       const hasDetail = hasShipping || donationAmount > 0 || sizesArr.length > 0;
                       const expanded = expandedId === r.id;
                       const settled = r.payment_status === "paid" || r.payment_status === "free";
-                      const shirtSurcharge = sizesArr.reduce((sum, sz) => sum + (SHIRT_SIZE_SURCHARGE[sz] || 0), 0);
+                      const shirtSurcharge = r.shirt_surcharge != null
+                        ? Number(r.shirt_surcharge) || 0
+                        : sizesArr.reduce((sum, sz) => sum + (SHIRT_SIZE_SURCHARGE_LAMA[sz] || 0), 0);
                       // Ongkir = sisa total setelah tiket, tambahan jersey, dan donasi — selalu sama dengan yang ditagih server.
                       const uniqueCode = Number(r.unique_code) || 0;
                       const shippingFee = hasShipping ? Math.max(0, r.total_amount - r.unit_price * r.quantity - shirtSurcharge - donationAmount - uniqueCode) : 0;
@@ -1666,12 +1688,12 @@
                                       <p><span className="font-semibold text-ink/60">Kecamatan:</span> {r.district}</p>
                                       <p><span className="font-semibold text-ink/60">Kota/Kabupaten:</span> {r.city}</p>
                                       <p><span className="font-semibold text-ink/60">Provinsi:</span> {r.province}</p>
-                                      <p><span className="font-semibold text-ink/60">Ukuran Jersey:</span> {sizesArr.length ? sizesArr.join(", ") : "-"}</p>
+                                      <p><span className="font-semibold text-ink/60">Jersey:</span> {sizesArr.length ? jerseyText(r) : "-"}</p>
                                       <p><span className="font-semibold text-ink/60">Kurir:</span> {r.courier}</p>
                                     </React.Fragment>
                                   )}
                                   {!hasShipping && sizesArr.length > 0 && (
-                                    <p><span className="font-semibold text-ink/60">Ukuran Jersey:</span> {sizesArr.join(", ")}</p>
+                                    <p><span className="font-semibold text-ink/60">Jersey:</span> {jerseyText(r)}</p>
                                   )}
                                   {donationAmount > 0 && (
                                     <p><span className="font-semibold text-ink/60">Donasi:</span> {formatRupiah(donationAmount)}</p>

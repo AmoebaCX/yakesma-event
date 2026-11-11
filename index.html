@@ -876,7 +876,10 @@
       }
 
       const SHIRT_SIZES = ["S", "M", "L", "XL", "2XL", "3XL", "4XL"];
-      const SHIRT_SIZE_SURCHARGE = { S: 0, M: 0, L: 0, XL: 0, "2XL": 25000, "3XL": 50000, "4XL": 75000 };
+      // Tambahan per jersey ukuran 2XL ke atas: rata Rp30.000 (tidak berlipat untuk 3XL/4XL). Harus sama dengan server.
+      const SHIRT_BIG_SURCHARGE = 30000;
+      const SHIRT_SIZE_SURCHARGE = { S: 0, M: 0, L: 0, XL: 0, "2XL": SHIRT_BIG_SURCHARGE, "3XL": SHIRT_BIG_SURCHARGE, "4XL": SHIRT_BIG_SURCHARGE };
+      const SHIRT_SLEEVES = [["pendek", "Lengan pendek"], ["panjang", "Lengan panjang"]];
       const COURIER = "POS Indonesia";
       /** Pratinjau ongkir POS Reguler dari tabel tarif di server. Total yang ditagih tetap dihitung server. */
       async function apiShippingQuote(shipping) {
@@ -1537,7 +1540,7 @@
         return {
           address: "", provinceId: "", province: "", cityId: "", city: "",
           districtId: "", district: "", subdistrictId: "", subdistrict: "",
-          postalCode: "", shirtSizes: [], courier: COURIER,
+          postalCode: "", shirtSizes: [], shirtSleeves: [], courier: COURIER,
           // Hasil cek kode pos untuk kelurahan terpilih — hanya dipakai di browser, tidak ikut dikirim.
           postalCheck: null, postalOverride: false,
         };
@@ -1581,14 +1584,26 @@
       function titleCase(s) { return String(s || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()); }
 
       /** Satu pilihan ukuran jersey per peserta — dipakai racepack yang dikirim maupun yang diambil di RPC. */
-      function ShirtSizeFields({ sizes, onChange, sizeChartImage }) {
+      function ShirtSizeFields({ shipping, setShipping, sizeChartImage, sleeveChoice }) {
+        const sizes = shipping.shirtSizes;
+        const sleeves = shipping.shirtSleeves || [];
+        const setSize = (i, v) => setShipping((s) => {
+          const next = s.shirtSizes.slice();
+          next[i] = v;
+          return Object.assign({}, s, { shirtSizes: next });
+        });
+        const setSleeve = (i, v) => setShipping((s) => {
+          const next = (s.shirtSleeves || []).slice();
+          next[i] = v;
+          return Object.assign({}, s, { shirtSleeves: next });
+        });
         const [showSizeChart, setShowSizeChart] = useState(false);
         const selCls = "w-full rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20";
         return (
           <div>
             <div className="mb-1.5 flex items-center justify-between gap-2">
               <label className="block text-sm font-semibold text-brand-dark">
-                {sizes.length > 1 ? "Ukuran Jersey per Peserta" : "Ukuran Jersey"}
+                {sleeveChoice ? (sizes.length > 1 ? "Jersey per Peserta" : "Jersey") : (sizes.length > 1 ? "Ukuran Jersey per Peserta" : "Ukuran Jersey")}
               </label>
               {sizeChartImage && (
                 <button type="button" onClick={() => setShowSizeChart(true)}
@@ -1599,23 +1614,28 @@
             </div>
             <div className="space-y-2">
               {sizes.map((size, i) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={i} className={sleeveChoice ? "" : "flex items-center gap-2"}>
                   {sizes.length > 1 && (
-                    <span className="w-20 shrink-0 text-xs font-semibold text-ink/55">Peserta {i + 1}</span>
+                    <span className={sleeveChoice ? "mb-1 block text-xs font-semibold text-ink/55" : "w-20 shrink-0 text-xs font-semibold text-ink/55"}>Peserta {i + 1}</span>
                   )}
-                  <select value={size}
-                    onChange={(e) => {
-                      const next = sizes.slice();
-                      next[i] = e.target.value;
-                      onChange(next);
-                    }}
+                  <div className={sleeveChoice ? "grid grid-cols-2 gap-2" : "contents"}>
+                  <select value={size} aria-label={"Ukuran jersey peserta " + (i + 1)}
+                    onChange={(e) => setSize(i, e.target.value)}
                     className={selCls}>
                     <option value="">Pilih ukuran</option>
-                    {SHIRT_SIZES.map((sz) => <option key={sz} value={sz}>{sz}</option>)}
+                    {SHIRT_SIZES.map((sz) => <option key={sz} value={sz}>{sz}{SHIRT_SIZE_SURCHARGE[sz] ? " (+" + formatRupiah(SHIRT_SIZE_SURCHARGE[sz]) + ")" : ""}</option>)}
                   </select>
+                  {sleeveChoice && (
+                    <select value={sleeves[i] || ""} onChange={(e) => setSleeve(i, e.target.value)} className={selCls} aria-label={"Model lengan peserta " + (i + 1)}>
+                      <option value="">Pilih lengan</option>
+                      {SHIRT_SLEEVES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                    </select>
+                  )}
+                  </div>
                 </div>
               ))}
             </div>
+            <p className="mt-1.5 text-xs text-ink/50">Ukuran 2XL ke atas: tambahan {formatRupiah(SHIRT_BIG_SURCHARGE)} per jersey.{sleeveChoice ? " Lengan pendek dan panjang harganya sama." : ""}</p>
             {showSizeChart && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 p-4"
                 onClick={() => setShowSizeChart(false)}>
@@ -1632,7 +1652,7 @@
         );
       }
 
-      function ShippingFields({ shipping, setShipping, sizeChartImage, shipQuote, needsSizes = true }) {
+      function ShippingFields({ shipping, setShipping, sizeChartImage, shipQuote, needsSizes = true, sleeveChoice = false }) {
         const [provinces, setProvinces] = useState([]);
         const [regencies, setRegencies] = useState([]);
         const [districts, setDistricts] = useState([]);
@@ -1760,8 +1780,7 @@
                 <PostalCodeStatus shipping={shipping} setPostal={setPostal} />
               </div>
               {needsSizes && (
-                <ShirtSizeFields sizes={shipping.shirtSizes} sizeChartImage={sizeChartImage}
-                  onChange={(next) => setShipping((s) => Object.assign({}, s, { shirtSizes: next }))} />
+                <ShirtSizeFields shipping={shipping} setShipping={setShipping} sizeChartImage={sizeChartImage} sleeveChoice={sleeveChoice} />
               )}
               <div>
                 <label className="mb-1.5 block text-sm font-semibold text-brand-dark">Kurir</label>
@@ -1954,6 +1973,7 @@
         const needsShipping = hasRacepack && mode === "online";
         const needsPickup = hasRacepack && mode === "offline";
         const needsSizes = hasRacepack && (hasPkgs ? !!pkg && pkg.jersey : true);
+        const sleeveChoice = needsSizes && !!event.sleeveChoice;
         const donationEnabled = !!event.donationEnabled;
         const donationRequired = donationEnabled && !!event.donationRequired;
         // Data lama (sebelum toggle minimal): donasi wajib selalu punya minimal.
@@ -2028,7 +2048,9 @@
           setShipping((s) => {
             const sizes = s.shirtSizes.slice(0, qty);
             while (sizes.length < qty) sizes.push("");
-            return Object.assign({}, s, { shirtSizes: sizes });
+            const sleeves = (s.shirtSleeves || []).slice(0, qty);
+            while (sleeves.length < qty) sleeves.push("");
+            return Object.assign({}, s, { shirtSizes: sizes, shirtSleeves: sleeves });
           });
         }, [qty, needsSizes]);
 
@@ -2042,6 +2064,9 @@
           if (!donationRequired && donationMin && donation > 0 && donation < donationMin) { setError("Minimal donasi " + formatRupiah(donationMin) + ". Kosongkan bila tidak ingin berdonasi."); return; }
           if (needsPickup && needsSizes && (shipping.shirtSizes.length !== qty || shipping.shirtSizes.some((sz) => !sz))) {
             setError("Pilih ukuran jersey untuk setiap peserta."); return;
+          }
+          if (sleeveChoice && ((shipping.shirtSleeves || []).length < qty || shipping.shirtSleeves.slice(0, qty).some((v) => !v))) {
+            setError("Pilih model lengan jersey (pendek/panjang) untuk setiap peserta."); return;
           }
           if (needsShipping) {
             if (!shipping.address.trim()) { setError("Alamat wajib diisi."); return; }
@@ -2089,9 +2114,11 @@
               subdistrict: shipping.subdistrict,
               postalCode: shipping.postalCode,
               shirtSizes: needsSizes ? shipping.shirtSizes : [],
+              shirtSleeves: sleeveChoice ? (shipping.shirtSleeves || []).slice(0, qty) : undefined,
               courier: shipping.courier,
             } : undefined,
             shirtSizes: needsPickup && needsSizes ? shipping.shirtSizes : undefined,
+            shirtSleeves: sleeveChoice ? (shipping.shirtSleeves || []).slice(0, qty) : undefined,
             metaEventId: eventId,
             metaFbp: readCookie("_fbp"),
             metaFbc: readCookie("_fbc"),
@@ -2283,7 +2310,7 @@
             )}
             {needsShipping && (
               <div className="mt-4">
-                <ShippingFields shipping={shipping} setShipping={setShipping} sizeChartImage={event.sizeChartImage} shipQuote={shipQuote} needsSizes={needsSizes} />
+                <ShippingFields shipping={shipping} setShipping={setShipping} sizeChartImage={event.sizeChartImage} shipQuote={shipQuote} needsSizes={needsSizes} sleeveChoice={sleeveChoice} />
               </div>
             )}
             {needsPickup && (
@@ -2294,8 +2321,7 @@
                 </div>
                 <RpcDetails event={event} />
                 {needsSizes && (
-                  <ShirtSizeFields sizes={shipping.shirtSizes} sizeChartImage={event.sizeChartImage}
-                    onChange={(next) => setShipping((s) => Object.assign({}, s, { shirtSizes: next }))} />
+                  <ShirtSizeFields shipping={shipping} setShipping={setShipping} sizeChartImage={event.sizeChartImage} sleeveChoice={sleeveChoice} />
                 )}
               </div>
             )}
