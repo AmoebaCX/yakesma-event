@@ -549,24 +549,40 @@
       }
 
       /* ============================ STORAGE (localStorage) ============================ */
+      /**
+       * Mode pratinjau (tab Pratinjau di admin membuka "../?preview=1"): situs tampil seperti untuk
+       * pengunjung baru. Data di perangkat (pesanan, akun, kode affiliate, dll.) diganti penyimpanan
+       * sementara di memori, Meta Pixel tidak dinyalakan, dan form pendaftaran tidak mengirim data.
+       */
+      const IS_PREVIEW = /(?:^|[?&])preview=1(?:&|$)/.test(location.search);
+      const store = IS_PREVIEW
+        ? (() => {
+            const m = new Map();
+            return {
+              getItem: (k) => (m.has(k) ? m.get(k) : null),
+              setItem: (k, v) => { m.set(k, String(v)); },
+              removeItem: (k) => { m.delete(k); },
+            };
+          })()
+        : window.localStorage;
       const REG_KEY = "yakesma_registrations_v1";
       const ACC_KEY = "yakesma_account_v1";
       function safeParse(raw, fb) { try { return raw ? JSON.parse(raw) : fb; } catch { return fb; } }
       function getRegistrations() {
-        const list = safeParse(localStorage.getItem(REG_KEY), []);
+        const list = safeParse(store.getItem(REG_KEY), []);
         return list.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
       }
       function saveRegistration(reg) {
-        const list = safeParse(localStorage.getItem(REG_KEY), []);
+        const list = safeParse(store.getItem(REG_KEY), []);
         list.push(reg);
-        localStorage.setItem(REG_KEY, JSON.stringify(list));
+        store.setItem(REG_KEY, JSON.stringify(list));
       }
       function removeRegistration(id) {
-        const list = safeParse(localStorage.getItem(REG_KEY), []);
-        localStorage.setItem(REG_KEY, JSON.stringify(list.filter((r) => r.id !== id)));
+        const list = safeParse(store.getItem(REG_KEY), []);
+        store.setItem(REG_KEY, JSON.stringify(list.filter((r) => r.id !== id)));
       }
-      function getAccount() { return safeParse(localStorage.getItem(ACC_KEY), null); }
-      function saveAccount(acc) { localStorage.setItem(ACC_KEY, JSON.stringify(acc)); }
+      function getAccount() { return safeParse(store.getItem(ACC_KEY), null); }
+      function saveAccount(acc) { store.setItem(ACC_KEY, JSON.stringify(acc)); }
       /** Bagian data server yang berbeda dari cache lokal (status, klaim bayar, kode unik, total) — null kalau sama. */
       function serverPatch(local, d) {
         const patch = {};
@@ -584,9 +600,9 @@
         return Object.keys(patch).length ? patch : null;
       }
       function updateRegistrationInCache(id, patch) {
-        const list = safeParse(localStorage.getItem(REG_KEY), []);
+        const list = safeParse(store.getItem(REG_KEY), []);
         const next = list.map((r) => (r.id === id ? Object.assign({}, r, patch) : r));
-        localStorage.setItem(REG_KEY, JSON.stringify(next));
+        store.setItem(REG_KEY, JSON.stringify(next));
       }
 
       /* ============================ BACKEND (yakesma-api) ============================ */
@@ -681,12 +697,12 @@
         try {
           const m = location.search.match(/[?&]ref=([^&#]+)/) || location.hash.match(/[?&]ref=([^&#]+)/);
           const code = m ? normalizeRefCode(decodeURIComponent(m[1])) : "";
-          if (code) localStorage.setItem(REF_KEY, JSON.stringify({ code: code, at: Date.now() }));
+          if (code) store.setItem(REF_KEY, JSON.stringify({ code: code, at: Date.now() }));
         } catch (e) {}
       }
       function readAffiliateRef() {
         try {
-          const v = JSON.parse(localStorage.getItem(REF_KEY) || "null");
+          const v = JSON.parse(store.getItem(REF_KEY) || "null");
           return v && v.code && Date.now() - v.at < REF_TTL_MS ? normalizeRefCode(v.code) : "";
         } catch (e) { return ""; }
       }
@@ -725,24 +741,24 @@
       // Dashboard affiliate yang pernah dibuka di perangkat ini — supaya bisa dibuka lagi dari menu tanpa link.
       const AFF_DASH_KEY = "yakesma_aff_dash_v1";
       function getSavedAffiliateDashboards() {
-        try { const v = JSON.parse(localStorage.getItem(AFF_DASH_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+        try { const v = JSON.parse(store.getItem(AFF_DASH_KEY) || "[]"); return Array.isArray(v) ? v : []; } catch (e) { return []; }
       }
       function saveAffiliateDashboard(code, token, name) {
         try {
           const list = getSavedAffiliateDashboards().filter((d) => d.code !== code);
           list.unshift({ code: code, t: token, name: name || "" });
-          localStorage.setItem(AFF_DASH_KEY, JSON.stringify(list.slice(0, 10)));
+          store.setItem(AFF_DASH_KEY, JSON.stringify(list.slice(0, 10)));
         } catch (e) {}
       }
       function forgetAffiliateDashboard(code) {
-        try { localStorage.setItem(AFF_DASH_KEY, JSON.stringify(getSavedAffiliateDashboards().filter((d) => d.code !== code))); } catch (e) {}
+        try { store.setItem(AFF_DASH_KEY, JSON.stringify(getSavedAffiliateDashboards().filter((d) => d.code !== code))); } catch (e) {}
       }
 
       /* ============ AKUN PENGUNJUNG (daftar/masuk/keluar) ============ */
       const ACCOUNT_TOKEN_KEY = "yakesma_account_token_v1";
-      function getAccountToken() { return localStorage.getItem(ACCOUNT_TOKEN_KEY); }
-      function setAccountToken(tok) { localStorage.setItem(ACCOUNT_TOKEN_KEY, tok); }
-      function clearAccountToken() { localStorage.removeItem(ACCOUNT_TOKEN_KEY); }
+      function getAccountToken() { return store.getItem(ACCOUNT_TOKEN_KEY); }
+      function setAccountToken(tok) { store.setItem(ACCOUNT_TOKEN_KEY, tok); }
+      function clearAccountToken() { store.removeItem(ACCOUNT_TOKEN_KEY); }
 
       async function accountFetch(path, opts) {
         const tok = getAccountToken();
@@ -1957,6 +1973,7 @@
         const [phone, setPhone] = useState("");
         const [qty, setQty] = useState(1);
         const [error, setError] = useState("");
+        const [previewMsg, setPreviewMsg] = useState(""); // hanya di mode pratinjau admin
         const [done, setDone] = useState(null);
         const [already, setAlready] = useState(null);
         const [submitting, setSubmitting] = useState(false);
@@ -2065,6 +2082,7 @@
 
         async function handleSubmit(e) {
           e.preventDefault();
+          setPreviewMsg("");
           if (!name.trim() || !email.trim() || !phone.trim()) { setError("Mohon lengkapi nama, email, dan nomor WhatsApp."); return; }
           if (!/^\S+@\S+\.\S+$/.test(email)) { setError("Format email belum benar."); return; }
           if (!mode) { setError("Pilih cara ikut: Offline atau Online."); return; }
@@ -2096,6 +2114,10 @@
             }
           }
           setError("");
+          if (IS_PREVIEW) {
+            setPreviewMsg("Mode pratinjau: semua isian sudah lengkap dan valid. Pendaftaran tidak dikirim, tidak ada data yang tersimpan.");
+            return;
+          }
           setSubmitting(true);
           // Dibuat SEKALI di sini, dipakai ulang di CAPI (server, lewat
           // payload) dan Pixel (browser, di bawah setelah sukses) supaya
@@ -2335,6 +2357,7 @@
               </div>
             )}
             {error && <p className="mt-3 rounded-lg bg-orange/10 px-3 py-2 text-sm font-medium text-orange">{error}</p>}
+            {previewMsg && <p className="mt-3 rounded-lg bg-brand-50 px-3 py-2 text-sm font-medium text-brand-dark">{previewMsg}</p>}
             <button type="submit" disabled={submitting} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-brand px-4 py-3.5 text-sm font-bold text-white shadow-sm shadow-brand/30 transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60">
               <IconTicket className="size-5" />{submitting ? "Memproses…" : grandTotal > 0 ? "Pesan Tiket" : "Daftar Sekarang"}
             </button>
@@ -3038,9 +3061,9 @@
       const RUN_MIN_PACE = 150;
       const RUN_MAX_PACE = 1200;
 
-      function readRunAccess() { try { return JSON.parse(localStorage.getItem(RUN_ACCESS_KEY) || "null"); } catch (e) { return null; } }
-      function saveRunAccess(v) { try { localStorage.setItem(RUN_ACCESS_KEY, JSON.stringify(v)); } catch (e) {} }
-      function clearRunAccess() { try { localStorage.removeItem(RUN_ACCESS_KEY); } catch (e) {} }
+      function readRunAccess() { try { return JSON.parse(store.getItem(RUN_ACCESS_KEY) || "null"); } catch (e) { return null; } }
+      function saveRunAccess(v) { try { store.setItem(RUN_ACCESS_KEY, JSON.stringify(v)); } catch (e) {} }
+      function clearRunAccess() { try { store.removeItem(RUN_ACCESS_KEY); } catch (e) {} }
 
       function todayIsoWIB() { return new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10); }
       function runSubmissionState(event) {
@@ -4288,6 +4311,11 @@
 
         return (
           <div className="app-bg flex min-h-screen flex-col font-sans text-ink">
+            {IS_PREVIEW && (
+              <div className="bg-gold/20 px-4 py-1.5 text-center text-xs font-semibold text-brand-dark">
+                Pratinjau admin: tampil sebagai pengunjung baru. Form pendaftaran tidak mengirim data.
+              </div>
+            )}
             <AppHeader />
             <main className="flex-1 pb-24 pt-6 sm:pt-8">{page}</main>
             <BottomNav path={route.path} />
@@ -4330,6 +4358,7 @@
 
       let _pixelReady = false;
       function initMetaPixel(pixelId) {
+        if (IS_PREVIEW) return; // pratinjau admin tidak dihitung sebagai kunjungan/konversi
         captureFbclidFromHash();
         if (!pixelId || _pixelReady) return;
         _pixelReady = true;

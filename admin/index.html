@@ -982,9 +982,9 @@
                 <button onClick={() => setNonce(Date.now())} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-600">↻ Segarkan</button>
               </div>
             </div>
-            <p className="text-xs text-ink/50">Menampilkan situs publik saat ini — setiap perubahan yang tersimpan langsung terlihat di sini.</p>
+            <p className="text-xs text-ink/50">Menampilkan situs publik saat ini sebagai pengunjung baru — setiap perubahan yang tersimpan langsung terlihat di sini. Form pendaftaran bisa dicoba tanpa mengirim data.</p>
             <div className="mx-auto overflow-hidden rounded-xl border border-slate-300 bg-white transition-all" style={{ width: wide ? "100%" : "390px" }}>
-              <iframe key={nonce} src={"../?t=" + nonce} title="Pratinjau" className="h-[70vh] w-full" />
+              <iframe key={nonce} src={"../?preview=1&t=" + nonce} title="Pratinjau" className="h-[70vh] w-full" />
             </div>
           </div>
         );
