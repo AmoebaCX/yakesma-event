@@ -6,6 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Ikuti kajian, kelas, webinar, dan program kebaikan YAKESMA — Lembaga Amil Zakat Nasional." />
     <title>YAKESMA — Lembaga Amil Zakat Nasional</title>
+    <!-- Alamat rapi: ".../index.html#/event/x" → ".../#/event/x" tanpa memuat ulang halaman
+         (link lama dari admin "Buka situs" dan bookmark yang terlanjur tersimpan). -->
+    <script>
+      try {
+        if (/\/index\.html$/i.test(location.pathname)) {
+          history.replaceState(history.state, "", location.pathname.replace(/index\.html$/i, "") + location.search + location.hash);
+        }
+      } catch (e) {}
+    </script>
 
     <!-- Mulai ambil konten SEBELUM CDN React/Babel (2.9MB) di-download, supaya
          paralel bukan berurutan — saat blok text/babel jalan nanti, response

@@ -984,7 +984,7 @@
             </div>
             <p className="text-xs text-ink/50">Menampilkan situs publik saat ini — setiap perubahan yang tersimpan langsung terlihat di sini.</p>
             <div className="mx-auto overflow-hidden rounded-xl border border-slate-300 bg-white transition-all" style={{ width: wide ? "100%" : "390px" }}>
-              <iframe key={nonce} src={"../index.html?t=" + nonce} title="Pratinjau" className="h-[70vh] w-full" />
+              <iframe key={nonce} src={"../?t=" + nonce} title="Pratinjau" className="h-[70vh] w-full" />
             </div>
           </div>
         );
@@ -2416,7 +2416,7 @@
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <a href="../index.html" target="_blank" rel="noopener" className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Buka situs ↗</a>
+                  <a href="../" target="_blank" rel="noopener" className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Buka situs ↗</a>
                   <button onClick={revokeAllSessions} title="Keluarkan semua perangkat yang sedang login admin (mis. laptop/HP hilang)" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-ink/60 hover:bg-slate-50">Keluar semua perangkat</button>
                   <button onClick={() => { clearApiToken(); location.reload(); }} title="Kunci panel" aria-label="Kunci panel" className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-ink/60 hover:bg-slate-50"><LockIcon /></button>
                 </div>
