@@ -158,6 +158,12 @@
       function Select({ label, value, onChange, options }) {
         return <div><Label>{label}</Label><select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}>{options.map((o) => <option key={o} value={o}>{o}</option>)}</select></div>;
       }
+      /** Minimal donasi aktif? Data lama (sebelum ada toggle): donasi wajib selalu punya minimal. */
+      function donationMinOn(e) {
+        if (!e.donationEnabled) return false;
+        return e.donationMinEnabled === undefined ? !!e.donationRequired : !!e.donationMinEnabled;
+      }
+
       function Toggle({ label, checked, onChange }) {
         return (
           <button type="button" onClick={() => onChange(!checked)} className="flex items-center gap-3">
@@ -543,8 +549,9 @@
           e.onlineQuota = e.format === "hybrid" ? Number(e.onlineQuota) || 0 : 0;
           e.offlineQuota = e.format === "hybrid" ? Number(e.offlineQuota) || 0 : 0;
           e.donationRequired = !!e.donationEnabled && !!e.donationRequired;
-          e.donationMin = e.donationRequired ? Number(e.donationMin) || 0 : 0;
-          if (e.donationRequired && e.donationMin < 1000) { alert("Isi minimal donasi (paling sedikit Rp1.000) untuk donasi wajib."); return; }
+          e.donationMinEnabled = donationMinOn(e);
+          e.donationMin = Number(e.donationMin) || 0; // disimpan walau toggle mati, supaya tidak perlu diketik ulang
+          if (e.donationMinEnabled && e.donationMin < 1000) { alert("Isi minimal donasi (paling sedikit Rp1.000), atau matikan toggle Minimal donasi."); return; }
           if (e.rpcDateEnd && !e.rpcDate) { alert("Isi tanggal mulai RPC."); return; }
           if (e.rpcDate && e.rpcDateEnd && e.rpcDateEnd < e.rpcDate) { alert("Tanggal selesai RPC tidak boleh sebelum tanggal mulai RPC."); return; }
           if (e.rpcDate && e.date && e.rpcDate > (e.dateEnd || e.date)) { alert("Tanggal RPC tidak boleh setelah pelaksanaan event."); return; }
@@ -642,28 +649,34 @@
                   />
                 </div>
               )}
-              <div className="sm:col-span-2">
-                <Label>Donasi saat pendaftaran</Label>
-                <select className={inputCls + " max-w-md"} value={!ev.donationEnabled ? "off" : ev.donationRequired ? "required" : "optional"}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setEv((p) => ({ ...p, donationEnabled: v !== "off", donationRequired: v === "required",
-                      donationMin: v === "required" && !(Number(p.donationMin) >= 1000) ? 25000 : p.donationMin }));
-                  }}>
-                  <option value="off">Tidak ada donasi</option>
-                  <option value="optional">Opsional — pendaftar boleh menambah donasi</option>
-                  <option value="required">Wajib — pendaftar harus berdonasi</option>
-                </select>
+              <div className="sm:col-span-2 space-y-3 rounded-xl border border-slate-200 p-4">
+                <Toggle label="Kolom donasi tambahan" checked={!!ev.donationEnabled}
+                  onChange={(v) => setEv((p) => ({ ...p, donationEnabled: v }))} />
+                {ev.donationEnabled && (
+                  <div className="space-y-3 border-l-2 border-brand-100 pl-4">
+                    <div>
+                      <Toggle label="Wajib diisi" checked={!!ev.donationRequired}
+                        onChange={(v) => setEv((p) => ({ ...p, donationRequired: v }))} />
+                      <p className="mt-1 text-xs text-ink/45">{ev.donationRequired ? "Pendaftar harus berdonasi untuk bisa mendaftar." : "Pendaftar boleh tidak berdonasi."}</p>
+                    </div>
+                    <div>
+                      <Toggle label="Minimal donasi" checked={donationMinOn(ev)}
+                        onChange={(v) => setEv((p) => ({ ...p, donationMinEnabled: v,
+                          donationMin: v && !(Number(p.donationMin) >= 1000) ? 25000 : p.donationMin }))} />
+                      {donationMinOn(ev) && (
+                        <div className="mt-2 max-w-md">
+                          <Num label="Nominal minimal per pendaftaran (Rp)" value={ev.donationMin} onChange={(v) => set("donationMin", v)} min={1000}
+                            hint={(ev.donationRequired ? "Pendaftar wajib berdonasi minimal angka ini." : "Boleh dikosongkan; bila diisi minimal angka ini.") +
+                              " Berlaku per pendaftaran, bukan per peserta. Catatan minimal tampil di bawah judul kotak donasi."} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-              {ev.donationEnabled && ev.donationRequired && (
-                <div className="sm:col-span-2 max-w-md">
-                  <Num label="Minimal donasi per pendaftaran (Rp)" value={ev.donationMin} onChange={(v) => set("donationMin", v)} min={1000}
-                    hint="Berlaku per pendaftaran (bukan per peserta). Tombol nominal di form dimulai dari angka ini." />
-                </div>
-              )}
               {ev.donationEnabled && (
                 <div className="sm:col-span-2">
-                  <Text label="Judul Bagian Donasi" value={ev.donationTitle} onChange={(v) => set("donationTitle", v)} placeholder={ev.donationRequired ? "Donasi" : "Donasi Pohon Tambahan (Opsional)"}
+                  <Text label="Judul Kotak Donasi" value={ev.donationTitle} onChange={(v) => set("donationTitle", v)} placeholder={ev.donationRequired ? "Donasi" : "Donasi Pohon Tambahan (Opsional)"}
                     hint="Judul kotak donasi di form pendaftaran. Kosongkan untuk memakai judul bawaan." />
                   <div className="mt-3">
                     <Text label="Tujuan Donasi" value={ev.donationLabel} onChange={(v) => set("donationLabel", v)} placeholder="mis. Penanaman Pohon di Bali" />
@@ -900,17 +913,24 @@
             </div>
             <div>
               <Label>QRIS Pembayaran</Label>
+              <div className="mb-2">
+                <Toggle label="Aktifkan pembayaran QRIS" checked={!!s.qris && s.qrisEnabled !== false}
+                  onChange={(v) => setS("qrisEnabled", v)} />
+              </div>
               <p className="mb-2 text-xs text-ink/45">
-                Isi (teks) QRIS statis lembaga, diawali <span className="font-mono">000201</span>. Bila diisi, pendaftar event berbayar
+                Isi (teks) QRIS statis lembaga, diawali <span className="font-mono">000201</span>. Saat aktif, pendaftar event berbayar
                 langsung melihat QRIS dengan nominal + kode unik (Rp1–999) terisi otomatis, dan tombol "Saya sudah bayar".
-                Kosongkan untuk kembali ke pembayaran lewat CS WhatsApp.
+                Saat dimatikan, pendaftaran baru kembali ke pembayaran lewat CS WhatsApp / transfer; isi QRIS tetap tersimpan.
               </p>
+              {s.qris && s.qrisEnabled === false && (
+                <p className="mb-2 rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-ink/60">QRIS tersimpan tetapi sedang dimatikan.</p>
+              )}
               <Area label="Payload QRIS" value={s.qris} onChange={(v) => setS("qris", v.replace(/\s+/g, ""))} rows={3} />
               {s.qris ? (
                 qrisValid(s.qris) ? (
                   <p className="mt-1 text-xs font-semibold text-brand-700">✓ QRIS valid — a.n. {qrisInfo(s.qris).merchant}{qrisInfo(s.qris).nmid ? " · NMID " + qrisInfo(s.qris).nmid : ""}</p>
                 ) : (
-                  <p className="mt-1 text-xs font-semibold text-orange">✗ QRIS tidak valid (CRC tidak cocok / terpotong). Jangan disimpan — peserta akan kembali diarahkan ke CS WhatsApp.</p>
+                  <p className="mt-1 text-xs font-semibold text-orange">✗ QRIS tidak valid (CRC tidak cocok / terpotong). Pengaturan tidak bisa disimpan sampai QRIS diperbaiki atau dikosongkan.</p>
                 )
               ) : null}
             </div>
@@ -1682,14 +1702,35 @@
       }
 
       /* ============ AFFILIATE (pembawa peserta: komunitas/ambassador) ============ */
-      const emptyAffiliate = { code: "", name: "", phone: "", email: "", eventSlug: "", commissionType: "none", commissionAmount: 0, notes: "" };
+      const emptyAffiliate = { code: "", name: "", phone: "", email: "", eventSlug: "", parentCode: "", commissionType: "none", commissionAmount: 0, notes: "" };
+      const MAX_AFFILIATE_LEVELS = 4;
+      /** Kode semua turunan (mitra, mitra dari mitra, …) dari `code`. */
+      function affiliateDescendants(all, code) {
+        const out = new Set();
+        const walk = (c) => all.forEach((a) => { if (a.parent_code === c && !out.has(a.code)) { out.add(a.code); walk(a.code); } });
+        walk(code);
+        return out;
+      }
+      /** Tingkat affiliate dalam jenjang (1 = affiliate utama). */
+      function affiliateLevel(all, code) {
+        let level = 1, cur = all.find((a) => a.code === code);
+        while (cur && cur.parent_code && level <= MAX_AFFILIATE_LEVELS) { level += 1; cur = all.find((a) => a.code === cur.parent_code); }
+        return level;
+      }
+      /** Tinggi subpohon `code` (1 = tidak punya mitra). */
+      function affiliateHeight(all, code, depth) {
+        const kids = all.filter((a) => a.parent_code === code);
+        if (!kids.length || (depth || 1) > MAX_AFFILIATE_LEVELS) return 1;
+        return 1 + Math.max.apply(null, kids.map((k) => affiliateHeight(all, k.code, (depth || 1) + 1)));
+      }
       function affiliateReward(a) {
         return a.commission_type === "fixed" ? formatRupiah(a.commission_amount) + " / peserta lunas" : "Hanya pelacakan";
       }
-      function AffiliateForm({ initial, events, onSaved, onCancel }) {
+      function AffiliateForm({ initial, events, affiliates, onSaved, onCancel }) {
         const editing = !!initial.id;
         const [f, setF] = useState(editing ? {
           code: initial.code, name: initial.name, phone: initial.phone || "", email: initial.email || "", eventSlug: initial.event_slug || "",
+          parentCode: initial.parent_code || "",
           commissionType: initial.commission_type, commissionAmount: initial.commission_amount, notes: initial.notes || "",
         } : emptyAffiliate);
         const [saving, setSaving] = useState(false);
@@ -1699,7 +1740,7 @@
         async function save(e) {
           e.preventDefault();
           setSaving(true); setError("");
-          const payload = { name: f.name, phone: f.phone, email: f.email.trim(), eventSlug: f.eventSlug, commissionType: f.commissionType,
+          const payload = { name: f.name, phone: f.phone, email: f.email.trim(), eventSlug: f.eventSlug, parentCode: f.parentCode, commissionType: f.commissionType,
             commissionAmount: f.commissionType === "fixed" ? f.commissionAmount : 0, notes: f.notes };
           const res = editing
             ? await apiFetch("/api/admin/affiliates/" + initial.id, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
@@ -1709,6 +1750,16 @@
           if (!res.ok) { setError(body.error || "Gagal menyimpan."); return; }
           onSaved(body);
         }
+
+        // Calon induk: bukan dirinya/turunannya, cakupan event cocok, dan jenjang tidak lebih dari 4 tingkat.
+        const own = editing ? affiliateDescendants(affiliates, initial.code) : new Set();
+        const height = editing ? affiliateHeight(affiliates, initial.code) : 1;
+        const parentOptions = affiliates.filter((a) =>
+          a.code !== initial.code && !own.has(a.code) &&
+          (!a.event_slug || a.event_slug === f.eventSlug) &&
+          affiliateLevel(affiliates, a.code) + height <= MAX_AFFILIATE_LEVELS &&
+          (a.active || a.code === f.parentCode));
+        const parentMissing = f.parentCode && !parentOptions.some((a) => a.code === f.parentCode);
 
         return (
           <form onSubmit={save} className="space-y-3 rounded-xl border border-brand-100 bg-white p-4">
@@ -1730,6 +1781,18 @@
                   <option value="">Semua event</option>
                   {events.map((ev) => <option key={ev.slug} value={ev.slug}>{ev.title}</option>)}
                 </select>
+              </div>
+              <div>
+                <Label>Di bawah affiliate</Label>
+                <select className={inputCls} value={f.parentCode} onChange={(e) => set("parentCode")(e.target.value)}>
+                  <option value="">Tidak ada (affiliate utama)</option>
+                  {parentMissing && <option value={f.parentCode}>{f.parentCode} (tidak cocok)</option>}
+                  {parentOptions.map((a) => (
+                    <option key={a.code} value={a.code}>{"\u00a0\u00a0".repeat(affiliateLevel(affiliates, a.code) - 1) + a.name + " (" + a.code + ")"}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-ink/45">Induk dapat melihat perolehan affiliate ini di dashboard-nya. Imbalan tetap hanya dari pendaftar langsung. Maks. {MAX_AFFILIATE_LEVELS} tingkat.</p>
+                {parentMissing && <p className="mt-1 text-xs font-semibold text-orange">Induk ini tidak cocok dengan "Berlaku untuk" atau jenjangnya terlalu dalam. Pilih induk lain.</p>}
               </div>
               <div>
                 <Label>Imbalan</Label>
@@ -1760,6 +1823,7 @@
         const [editing, setEditing] = useState(null); // null | "new" | row
         const [busyId, setBusyId] = useState(null);
         const [copiedId, setCopiedId] = useState(null);
+        const [network, setNetwork] = useState(""); // "" = semua; kode = affiliate itu + seluruh mitranya
         const eventTitle = (slug) => { const ev = events.find((e) => e.slug === slug); return ev ? ev.title : slug; };
 
         async function load() {
@@ -1797,14 +1861,19 @@
         }
 
         function ekspor() {
-          const head = ["Kode", "Nama", "WhatsApp", "Email", "Berlaku untuk", "Imbalan", "Nominal per peserta", "Pesanan aktif", "Peserta", "Peserta lunas", "Menunggu bayar", "Komisi", "Aktif"];
-          const rows = items.map((a) => [a.code, a.name, a.phone || "", a.email || "", a.event_slug ? eventTitle(a.event_slug) : "Semua event",
+          const head = ["Kode", "Nama", "Induk", "WhatsApp", "Email", "Berlaku untuk", "Imbalan", "Nominal per peserta", "Pesanan aktif", "Peserta", "Peserta lunas", "Menunggu bayar", "Komisi", "Aktif"];
+          const rows = items.map((a) => [a.code, a.name, a.parent_code || "", a.phone || "", a.email || "", a.event_slug ? eventTitle(a.event_slug) : "Semua event",
             a.commission_type === "fixed" ? "Komisi tetap" : "Pelacakan", a.commission_amount, a.stats.registrations, a.stats.participants,
             a.stats.paidParticipants, a.stats.pendingParticipants, a.stats.commission, a.active ? "Ya" : "Tidak"]);
           const csv = "\uFEFF" + [head].concat(rows).map((r) => r.map(csvCell).join(",")).join("\n") + "\n";
           download("affiliate-yakesma.csv", csv, "text/csv;charset=utf-8");
         }
 
+        const nameOf = (code) => { const a = items.find((x) => x.code === code); return a ? a.name : code; };
+        const childCount = (code) => items.filter((x) => x.parent_code === code).length;
+        const parents = items.filter((a) => childCount(a.code) > 0);
+        const inNetwork = network ? affiliateDescendants(items, network) : null;
+        const shown = network ? items.filter((a) => a.code === network || inNetwork.has(a.code)) : items;
         const totalCommission = items.reduce((sum, a) => sum + a.stats.commission, 0);
         const totalParticipants = items.reduce((sum, a) => sum + a.stats.participants, 0);
 
@@ -1822,12 +1891,22 @@
             </div>
 
             {editing && (
-              <AffiliateForm initial={editing === "new" ? {} : editing} events={events}
+              <AffiliateForm initial={editing === "new" ? {} : editing} events={events} affiliates={items}
                 onCancel={() => setEditing(null)}
                 onSaved={(row) => {
                   setItems((list) => (editing === "new" ? [row].concat(list) : list.map((x) => (x.id === row.id ? row : x))));
                   setEditing(null);
                 }} />
+            )}
+
+            {parents.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-semibold text-ink/55">Tampilkan</span>
+                <select className={inputCls + " max-w-xs py-1.5 text-xs"} value={network} onChange={(e) => setNetwork(e.target.value)}>
+                  <option value="">Semua affiliate</option>
+                  {parents.map((a) => <option key={a.code} value={a.code}>Jaringan {a.name} ({a.code})</option>)}
+                </select>
+              </div>
             )}
 
             {error && <p className="rounded-lg bg-orange/10 px-3 py-2 text-sm text-orange">{error}</p>}
@@ -1837,7 +1916,7 @@
               <p className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-ink/50">Belum ada affiliate. Buat kode untuk komunitas atau ambassador yang membawa peserta.</p>
             ) : (
               <div className="space-y-3">
-                {items.map((a) => (
+                {shown.map((a) => (
                   <div key={a.id} className={"rounded-xl border bg-white p-4 " + (a.active ? "border-slate-200" : "border-dashed border-slate-300 opacity-70")}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -1848,6 +1927,13 @@
                         <p className="mt-0.5 text-xs text-ink/50">
                           {a.event_slug ? eventTitle(a.event_slug) : "Semua event"} · {affiliateReward(a)}{a.phone ? " · " + a.phone : ""}{a.email ? " · " + a.email : ""}
                         </p>
+                        {(a.parent_code || childCount(a.code) > 0) && (
+                          <p className="mt-0.5 text-xs font-semibold text-brand-700">
+                            {a.parent_code ? "Di bawah " + nameOf(a.parent_code) + " (" + a.parent_code + ")" : ""}
+                            {a.parent_code && childCount(a.code) > 0 ? " · " : ""}
+                            {childCount(a.code) > 0 ? childCount(a.code) + " mitra langsung" : ""}
+                          </p>
+                        )}
                         {a.notes && <p className="mt-0.5 text-xs italic text-ink/45">{a.notes}</p>}
                       </div>
                       <div className="flex gap-4 text-right text-xs">

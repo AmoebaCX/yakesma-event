@@ -1260,7 +1260,7 @@
         const body = out.map((f) => f[0] + String(f[1].length).padStart(2, "0") + f[1]).join("") + "6304";
         return body + qrisCrc16(body);
       }
-      const hasQris = () => qrisValid(SITE.qris);
+      const hasQris = () => SITE.qrisEnabled !== false && qrisValid(SITE.qris);
       /**
        * QRIS hanya ditampilkan untuk pesanan yang SERVER beri kode unik. Keputusan ada di server, bukan di
        * salinan pengaturan di browser — tab yang terbuka sejak sebelum QRIS dinonaktifkan masih menyimpan
@@ -1786,14 +1786,18 @@
       const DEFAULT_DONATION_TITLE = "Donasi Pohon Tambahan (Opsional)";
       // Donasi wajib: pendaftar harus berdonasi minimal `min` per pendaftaran (dicek ulang di server).
       function DonationField({ title, label, amount, setAmount, required, min }) {
-        const presets = required
+        // min = 0 berarti fitur minimal donasi mati.
+        const presets = min
           ? [min].concat(DONATION_PRESETS.filter((p) => p > min)).slice(0, 4)
           : DONATION_PRESETS;
+        const note = required
+          ? (min ? "Wajib, minimal " + formatRupiah(min) + " per pendaftaran" : "Wajib diisi")
+          : (min ? "Minimal donasi " + formatRupiah(min) + " bila diisi" : "");
         return (
           <div className="space-y-2.5 rounded-xl border border-brand-100 bg-brand-50/40 p-4">
             <div>
               <p className="text-sm font-bold text-brand-dark">{(title && title.trim()) || (required ? "Donasi" : DEFAULT_DONATION_TITLE)}</p>
-              {required && <p className="mt-0.5 text-xs font-semibold text-orange">Wajib, minimal {formatRupiah(min)} per pendaftaran</p>}
+              {note && <p className={"mt-0.5 text-xs font-semibold " + (required ? "text-orange" : "text-ink/55")}>{note}</p>}
             </div>
             {label && <p className="text-xs text-ink/60">{label}</p>}
             <div className="flex flex-wrap gap-2">
@@ -1809,9 +1813,9 @@
               <label className="mb-1 block text-xs font-semibold text-ink/55">Jumlah lain (Rp)</label>
               <input inputMode="numeric" value={amount ? String(amount) : ""}
                 onChange={(e) => setAmount(Math.min(10000000, Number(e.target.value.replace(/\D/g, "")) || 0))}
-                placeholder={required ? "Minimal " + min : "0"}
+                placeholder={min ? "Minimal " + min : "0"}
                 className="w-full rounded-xl border border-brand-100 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20" />
-              {required && amount > 0 && amount < min && (
+              {min > 0 && amount > 0 && amount < min && (
                 <p className="mt-1 text-xs font-semibold text-orange">Minimal donasi {formatRupiah(min)}.</p>
               )}
             </div>
@@ -1952,7 +1956,9 @@
         const needsSizes = hasRacepack && (hasPkgs ? !!pkg && pkg.jersey : true);
         const donationEnabled = !!event.donationEnabled;
         const donationRequired = donationEnabled && !!event.donationRequired;
-        const donationMin = Math.max(1, Number(event.donationMin) || 0);
+        // Data lama (sebelum toggle minimal): donasi wajib selalu punya minimal.
+        const donationMinOn = donationEnabled && (event.donationMinEnabled === undefined ? donationRequired : !!event.donationMinEnabled);
+        const donationMin = donationMinOn ? Math.max(1, Number(event.donationMin) || 0) : 0;
         const shirtSurchargeTotal = needsSizes
           ? shipping.shirtSizes.reduce((sum, sz) => sum + (SHIRT_SIZE_SURCHARGE[sz] || 0), 0)
           : 0;
@@ -2032,7 +2038,8 @@
           if (!/^\S+@\S+\.\S+$/.test(email)) { setError("Format email belum benar."); return; }
           if (!mode) { setError("Pilih cara ikut: Offline atau Online."); return; }
           if (hasPkgs && !pkg) { setError("Pilih paket terlebih dahulu."); return; }
-          if (donationRequired && donation < donationMin) { setError("Donasi wajib diisi, minimal " + formatRupiah(donationMin) + "."); return; }
+          if (donationRequired && donation < Math.max(1, donationMin)) { setError(donationMin ? "Donasi wajib diisi, minimal " + formatRupiah(donationMin) + "." : "Donasi wajib diisi."); return; }
+          if (!donationRequired && donationMin && donation > 0 && donation < donationMin) { setError("Minimal donasi " + formatRupiah(donationMin) + ". Kosongkan bila tidak ingin berdonasi."); return; }
           if (needsPickup && needsSizes && (shipping.shirtSizes.length !== qty || shipping.shirtSizes.some((sz) => !sz))) {
             setError("Pilih ukuran jersey untuk setiap peserta."); return;
           }
@@ -4041,10 +4048,59 @@
 
       /* ============ HALAMAN AFFILIATE (#/affiliate/<kode>?t=<token>) — link pribadi dari panitia ============ */
       const AFF_STATUS = { paid: "Lunas", free: "Terdaftar (gratis)", pending_transfer: "Menunggu bayar", cancelled: "Batal" };
+      /**
+       * Perolehan mitra di bawah affiliate ini (affiliate berjenjang, maks. 4 tingkat). Hanya jumlah peserta —
+       * imbalan mitra tidak ditampilkan karena imbalan hanya dihitung dari pendaftar langsung masing-masing.
+       */
+      function AffiliateNetwork({ net, own }) {
+        const total = net.total;
+        const all = {
+          participants: own.participants + total.participants,
+          confirmed: own.confirmedParticipants + total.confirmedParticipants,
+          pending: own.pendingParticipants + total.pendingParticipants,
+        };
+        const direct = net.members.filter((m) => m.depth === 1).length;
+        return (
+          <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
+            <h2 className="font-bold text-brand-dark">Jaringan mitra</h2>
+            <p className="mt-0.5 text-xs text-ink/55">{direct} mitra langsung{net.members.length > direct ? ", " + net.members.length + " affiliate di seluruh jaringan" : ""}. Angka di atas hanya pendaftar lewat kode Anda sendiri.</p>
+            <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-brand-50/60 p-3 text-center">
+              <div><p className="text-xl font-extrabold text-brand-dark">{all.participants}</p><p className="text-[11px] text-ink/55">peserta jaringan</p></div>
+              <div><p className="text-xl font-extrabold text-brand">{all.confirmed}</p><p className="text-[11px] text-ink/55">lunas</p></div>
+              <div><p className="text-xl font-extrabold text-orange">{all.pending}</p><p className="text-[11px] text-ink/55">menunggu bayar</p></div>
+            </div>
+            <p className="mt-1.5 text-[11px] text-ink/45">Total jaringan = pendaftar langsung Anda + seluruh mitra di bawah Anda.</p>
+            <ul className="mt-3 divide-y divide-brand-50">
+              <li className="flex items-center justify-between gap-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink/40">
+                <span>Mitra</span><span>Lunas · Menunggu</span>
+              </li>
+              {net.members.map((m) => (
+                <li key={m.code} className="flex items-center justify-between gap-3 py-2" style={{ paddingLeft: (m.depth - 1) * 16 }}>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-ink/85">
+                      {m.depth > 1 && <span className="mr-1 text-ink/30" aria-hidden="true">└</span>}{m.name}
+                      {!m.active && <span className="ml-1.5 rounded-full bg-ink/10 px-1.5 py-0.5 text-[10px] font-semibold text-ink/50">nonaktif</span>}
+                    </p>
+                    <p className="text-xs text-ink/45">
+                      <span className="font-mono">{m.code}</span>
+                      {m.totalStats.participants !== m.stats.participants ? " · " + m.stats.participants + " langsung, " + (m.totalStats.participants - m.stats.participants) + " dari mitranya" : ""}
+                    </p>
+                  </div>
+                  <p className="shrink-0 text-sm font-bold text-brand-dark">
+                    {m.totalStats.confirmedParticipants}<span className="font-normal text-ink/40"> · {m.totalStats.pendingParticipants}</span>
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      }
+
       function AffiliatePage({ code, token }) {
         const [data, setData] = useState(null);
         const [error, setError] = useState("");
         const [copied, setCopied] = useState("");
+        const [tab, setTab] = useState("direct");
 
         function load() {
           apiAffiliateStats(code, token).then((res) => {
@@ -4077,6 +4133,8 @@
         }
 
         const st = data && data.stats;
+        const net = data && data.network;
+        const list = net && tab === "network" ? net : data;
         return (
           <Container>
            <div className="mx-auto max-w-xl space-y-5">
@@ -4118,6 +4176,8 @@
                   )}
                 </div>
 
+                {net && <AffiliateNetwork net={net} own={st} />}
+
                 {data.links.length > 0 && (
                   <div className="space-y-2 rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
                     <h2 className="font-bold text-brand-dark">Link untuk dibagikan</h2>
@@ -4136,15 +4196,26 @@
                 )}
 
                 <div className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
-                  <h2 className="font-bold text-brand-dark">Pendaftar <span className="text-ink/40">({data.totalItems})</span></h2>
-                  {data.items.length === 0 ? (
-                    <p className="mt-2 text-sm text-ink/55">Belum ada pendaftar lewat kode Anda.</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="font-bold text-brand-dark">Pendaftar <span className="text-ink/40">({list.totalItems})</span></h2>
+                    {net && (
+                      <div className="inline-flex rounded-full border border-brand-100 p-0.5 text-xs font-semibold" role="tablist">
+                        {[["direct", "Langsung"], ["network", "Dari mitra"]].map(([id, label]) => (
+                          <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+                            className={"rounded-full px-3 py-1 transition " + (tab === id ? "bg-brand text-white" : "text-ink/60 hover:text-brand-dark")}>{label}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  {list.items.length === 0 ? (
+                    <p className="mt-2 text-sm text-ink/55">{list === data ? "Belum ada pendaftar lewat kode Anda." : "Belum ada pendaftar lewat mitra Anda."}</p>
                   ) : (
                     <ul className="mt-2 divide-y divide-brand-50">
-                      {data.items.map((it, i) => (
+                      {list.items.map((it, i) => (
                         <li key={i} className="flex items-start justify-between gap-3 py-2">
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-ink/85">{it.name} <span className="font-normal text-ink/45">· {it.quantity} peserta</span></p>
+                            {it.via && <p className="truncate text-xs font-semibold text-brand-700">via {it.via}</p>}
                             <p className="truncate text-xs text-ink/50">{it.eventTitle}{it.packageName ? " – " + it.packageName : ""} · {new Date(it.createdAt).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Jakarta" })}</p>
                           </div>
                           <span className={"shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold " + (it.paymentStatus === "paid" || it.paymentStatus === "free" ? "bg-brand text-white" : it.paymentStatus === "cancelled" ? "bg-ink/10 text-ink/50" : "bg-gold/20 text-orange")}>
@@ -4154,7 +4225,7 @@
                       ))}
                     </ul>
                   )}
-                  {data.totalItems > data.items.length && <p className="mt-2 text-xs text-ink/45">Menampilkan {data.items.length} pendaftar terbaru.</p>}
+                  {list.totalItems > list.items.length && <p className="mt-2 text-xs text-ink/45">Menampilkan {list.items.length} pendaftar terbaru.</p>}
                 </div>
                 <p className="text-center text-xs text-ink/40">Dashboard ini tersimpan di perangkat Anda (menu Akun → Dashboard Affiliate). Jangan bagikan link-nya ke orang lain.</p>
               </React.Fragment>
