@@ -1976,6 +1976,21 @@
         const [previewMsg, setPreviewMsg] = useState(""); // hanya di mode pratinjau admin
         const [done, setDone] = useState(null);
         const [already, setAlready] = useState(null);
+        // Satu email/akun boleh mendaftar lebih dari sekali di event yang sama (mis. mendaftarkan
+        // keluarga/teman dalam pesanan terpisah). Kartu "sudah terdaftar" tetap tampil, plus tombol "Daftar lagi".
+        const [registerAgain, setRegisterAgain] = useState(false);
+        function daftarLagi() {
+          setDone(null);
+          setRegisterAgain(true);
+          setPreviewMsg("");
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+        const againButton = (
+          <button type="button" onClick={daftarLagi}
+            className="flex w-full items-center justify-center rounded-xl border border-brand px-4 py-3 text-sm font-bold text-brand transition hover:bg-brand-50">
+            Daftar lagi (pesanan baru)
+          </button>
+        );
         const [submitting, setSubmitting] = useState(false);
         const [shipping, setShipping] = useState(emptyShipping);
         const [donation, setDonation] = useState(0);
@@ -2195,17 +2210,20 @@
 
         if (done) {
           return (
-            <TicketCard reg={done} free={free} onCancelled={() => {
-              updateRegistrationInCache(done.id, { paymentStatus: "cancelled" });
-              setDone((d) => (d ? Object.assign({}, d, { paymentStatus: "cancelled" }) : d));
-            }} onClaimed={(at, status) => {
-              const patch = { paymentClaimedAt: at, paymentStatus: status || done.paymentStatus };
-              updateRegistrationInCache(done.id, patch);
-              setDone((d) => (d ? Object.assign({}, d, patch) : d));
-            }} />
+            <div className="space-y-3">
+              <TicketCard reg={done} free={free} onCancelled={() => {
+                updateRegistrationInCache(done.id, { paymentStatus: "cancelled" });
+                setDone((d) => (d ? Object.assign({}, d, { paymentStatus: "cancelled" }) : d));
+              }} onClaimed={(at, status) => {
+                const patch = { paymentClaimedAt: at, paymentStatus: status || done.paymentStatus };
+                updateRegistrationInCache(done.id, patch);
+                setDone((d) => (d ? Object.assign({}, d, patch) : d));
+              }} />
+              {againButton}
+            </div>
           );
         }
-        if (already)
+        if (already && !registerAgain)
           return (
             <div className="space-y-3 rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-2">
@@ -2234,6 +2252,7 @@
                 </React.Fragment>
               )}
               <Link to="/event-saya" className="flex w-full items-center justify-center rounded-xl bg-brand px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-600">Lihat di Event Saya</Link>
+              {againButton}
             </div>
           );
 
