@@ -1867,11 +1867,20 @@
         );
       }
 
+      /** Teks pilihan Offline yang ditetapkan panitia, per slug event (19 Nov 2026). */
+      const OFFLINE_DESC = {
+        "run-for-palestine": "Tanpa Ongkir | Ambil Langsung di Race Pack Collection \u2013 Masjid An Nur Menara Mandiri",
+      };
+
       /** Event hybrid: peserta memilih ikut offline (datang ke lokasi) atau online (virtual). */
       function ModePicker({ event, value, onChange }) {
         const racepack = eventHasRacepack(event);
+        // Teks pilihan Offline: yang ditetapkan panitia per event (OFFLINE_DESC), selain itu disusun dari data RPC/lokasi di admin.
+        const offlineDesc = !racepack
+          ? "Datang ke " + (eventPlace(event) || "lokasi event") + "."
+          : OFFLINE_DESC[event.slug] || "Tanpa Ongkir | Ambil Langsung di Race Pack Collection \u2013 " + (event.rpcLocation || event.location || "lokasi event");
         const opts = [
-          { id: "offline", icon: IconMapPin, title: "Offline", desc: "Datang ke " + (eventPlace(event) || "lokasi event") + (racepack ? ". Racepack diambil di RPC, tanpa ongkir." : ".") },
+          { id: "offline", icon: IconMapPin, title: "Offline", desc: offlineDesc },
           { id: "online", icon: IconGlobe, title: "Online (virtual)", desc: "Lari di mana saja" + (racepack ? ". Racepack dikirim ke alamat Anda (+ ongkir)." : ".") },
         ];
         return (
