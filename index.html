@@ -4193,9 +4193,12 @@
         function load() {
           apiAffiliateStats(code, token).then((res) => {
             if (!res.ok) {
+              const invalid = /tidak valid/i.test(res.error || "");
+              // Penyegaran gagal sesaat (sinyal putus, server sibuk) padahal data sudah tampil: biarkan angka terakhir, coba lagi nanti.
+              if (!invalid && data && String(data.code).toUpperCase() === String(code).toUpperCase()) return;
               setError(res.error);
               // Link lama (sudah di-reset panitia) tidak disimpan lagi sebagai pintasan di perangkat ini.
-              if (/tidak valid/i.test(res.error || "")) forgetAffiliateDashboard(code);
+              if (invalid) forgetAffiliateDashboard(code);
               return;
             }
             setError(""); setData(res.data);
@@ -4203,7 +4206,9 @@
           });
         }
         useEffect(() => { load(); }, [code, token]);
-        useLiveRefresh(load, false);
+        // Angka peserta & komisi menyegarkan diri tiap 30 detik selama halaman terlihat, dan saat kembali ke tab ini.
+        // Berhenti bila link sudah tidak valid, supaya tidak terus memanggil server.
+        useLiveRefresh(load, !!data && !error);
 
         async function share(link) {
           const text = "Yuk ikut " + link.title + "! Daftar lewat link ini:";
