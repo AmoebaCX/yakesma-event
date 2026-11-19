@@ -1838,6 +1838,200 @@
         );
       }
 
+      /* ---------- Impor affiliate massal dari CSV ---------- */
+      const AFFILIATE_IMPORT_MAX = 300;
+      const AFFILIATE_CSV_COLUMNS = ["kode", "nama", "whatsapp", "email", "event", "kode_induk", "komisi_per_peserta", "catatan"];
+      // Judul kolom → field. Urutan kolom bebas; judul dicocokkan tanpa huruf besar/spasi/garis bawah.
+      const AFFILIATE_CSV_HEADERS = {
+        kode: "code", code: "code", kodeaffiliate: "code",
+        nama: "name", name: "name", namaaffiliate: "name",
+        whatsapp: "phone", wa: "phone", nomorwhatsapp: "phone", nowa: "phone", hp: "phone", telepon: "phone", phone: "phone",
+        email: "email",
+        event: "event", berlakuuntuk: "event", eventslug: "event",
+        kodeinduk: "parentCode", induk: "parentCode", dibawahaffiliate: "parentCode", parentcode: "parentCode",
+        komisiperpeserta: "commission", komisiperpesertalunas: "commission", komisi: "commission", nominalperpeserta: "commission",
+        catatan: "notes", catataninternal: "notes", notes: "notes",
+      };
+
+      /** CSV → baris sel. Mengenali pemisah koma, titik koma (Excel Indonesia), atau tab; sel bertanda kutip boleh memuat pemisah/baris baru. */
+      function parseCsvText(text) {
+        text = text.replace(/^﻿/, "");
+        const firstLine = text.split(/\r?\n/).find((l) => l.trim() && !/^sep=/i.test(l.trim())) || "";
+        const outside = firstLine.replace(/"[^"]*"/g, "");
+        const sep = [";", "\t", ","].map((s) => [s, outside.split(s).length]).sort((a, b) => b[1] - a[1])[0][0];
+        const rows = [];
+        let row = [], cell = "", quoted = false;
+        for (let i = 0; i < text.length; i++) {
+          const ch = text[i];
+          if (quoted) {
+            if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+            else if (ch === '"') quoted = false;
+            else cell += ch;
+          } else if (ch === '"' && cell === "") quoted = true;
+          else if (ch === sep) { row.push(cell); cell = ""; }
+          else if (ch === "\n" || ch === "\r") {
+            if (ch === "\r" && text[i + 1] === "\n") i++;
+            row.push(cell); rows.push(row); row = []; cell = "";
+          } else cell += ch;
+        }
+        if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+        // Baris "sep=;" (penanda pemisah dari Excel) ikut terbelah pemisahnya sendiri — buang.
+        return rows.filter((r) => !(/^sep=/i.test((r[0] || "").trim()) && r.slice(1).every((c) => !c.trim())));
+      }
+
+      /** Baris CSV → { rows: [{ line, code, name, ... }] } atau { error }. Baris kosong & baris diawali # dilewati. */
+      function affiliateRowsFromCsv(text) {
+        const all = parseCsvText(text);
+        const headerAt = all.findIndex((r) => r.some((c) => c.trim()));
+        if (headerAt < 0) return { error: "File kosong." };
+        const fields = all[headerAt].map((h) => AFFILIATE_CSV_HEADERS[h.toLowerCase().replace(/[^a-z0-9]/g, "")] || null);
+        if (!fields.includes("code") || !fields.includes("name")) {
+          return { error: "Judul kolom tidak dikenali. Baris pertama harus berisi judul kolom seperti di template (minimal kode dan nama)." };
+        }
+        const rows = [];
+        all.slice(headerAt + 1).forEach((cells, i) => {
+          if (!cells.some((c) => c.trim())) return;
+          if ((cells[0] || "").trim().startsWith("#")) return;
+          const r = { line: headerAt + i + 2 };
+          fields.forEach((f, j) => {
+            if (!f) return;
+            let v = (cells[j] || "").trim();
+            if (/^'[=+\-@]/.test(v)) v = v.slice(1); // awalan ' dari ekspor CSV situs ini
+            r[f] = v;
+          });
+          rows.push(r);
+        });
+        if (!rows.length) return { error: "Tidak ada baris affiliate di file (baris diawali # adalah contoh dan tidak diimpor)." };
+        if (rows.length > AFFILIATE_IMPORT_MAX) return { error: "Maksimal " + AFFILIATE_IMPORT_MAX + " baris per impor. File ini berisi " + rows.length + " baris; pecah menjadi beberapa file." };
+        return { rows };
+      }
+
+      function downloadAffiliateTemplate(events) {
+        const ev = events.find((e) => e.slug === "run-for-palestine") || events[0];
+        const slug = ev ? ev.slug : "";
+        const lines = [
+          AFFILIATE_CSV_COLUMNS,
+          ["#CONTOH1", "Komunitas Lari Contoh", "081234567890", "koordinator@contoh.com", slug, "", "0", "Baris diawali # tidak diimpor. Hapus baris contoh ini."],
+          ["#CONTOH2", "Mitra Contoh", "", "", slug, "CONTOH1", "10000", "Di bawah CONTOH1, komisi Rp10.000 per peserta lunas"],
+        ];
+        download("template-affiliate-yakesma.csv", "﻿" + lines.map((r) => r.map(csvCell).join(",")).join("\n") + "\n", "text/csv;charset=utf-8");
+      }
+
+      const IMPORT_STATUS = {
+        create: { text: "Akan dibuat", cls: "text-brand-700" },
+        skip: { text: "Dilewati", cls: "text-ink/50" },
+        error: { text: "Ditolak", cls: "text-orange" },
+      };
+
+      function AffiliateImportPanel({ fileName, rows, initialCheck, events, onCreated, onClose, waLink }) {
+        const [check, setCheck] = useState(initialCheck);
+        const [created, setCreated] = useState(null);
+        const [busy, setBusy] = useState(false);
+        const [error, setError] = useState("");
+        const eventTitle = (slug) => { const ev = events.find((e) => e.slug === slug); return ev ? ev.title : slug; };
+        const s = check.summary;
+        const withCommission = check.rows.filter((r) => r.status === "create" && r.commissionAmount > 0).length;
+        const withParent = check.rows.filter((r) => r.status === "create" && r.parentCode).length;
+
+        async function save() {
+          if (!confirm("Buat " + s.create + " affiliate baru? Kode tidak bisa diubah atau dihapus setelah tersimpan.")) return;
+          setBusy(true); setError("");
+          const res = await apiFetch("/api/admin/affiliates/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dryRun: false, rows }) });
+          const body = await res.json().catch(() => ({}));
+          setBusy(false);
+          if (res.status === 401) { location.reload(); return; }
+          if (!res.ok) { setError(body.error || "Gagal menyimpan."); return; }
+          setCheck({ summary: body.summary, rows: body.rows });
+          setCreated(body.created || []);
+          if ((body.created || []).length) onCreated(body.created);
+        }
+
+        function downloadLinks() {
+          const head = ["Kode", "Nama", "Induk", "WhatsApp", "Email", "Berlaku untuk", "Link dashboard affiliate (pribadi)", "Link kirim via WhatsApp"];
+          const data = created.map((a) => [a.code, a.name, a.parent_code || "", a.phone || "", a.email || "", a.event_slug ? eventTitle(a.event_slug) : "Semua event",
+            a.dashboardUrl, a.phone ? waLink(a) : ""]);
+          download("link-affiliate-baru.csv", "﻿" + [head].concat(data).map((r) => r.map(csvCell).join(",")).join("\n") + "\n", "text/csv;charset=utf-8");
+        }
+
+        return (
+          <div className="space-y-3 rounded-xl border border-brand-100 bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-brand-dark">{created ? "Hasil impor" : "Periksa impor"} · <span className="font-mono text-sm font-semibold">{fileName}</span></h3>
+                <p className="text-xs text-ink/55">
+                  {s.total} baris · <span className="font-semibold text-brand-700">{created ? created.length + " tersimpan" : s.create + " akan dibuat"}</span>
+                  {s.skip > 0 && <span> · {s.skip} dilewati (sudah ada)</span>}
+                  {s.error > 0 && <span className="font-semibold text-orange"> · {s.error} ditolak</span>}
+                </p>
+              </div>
+              <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Tutup</button>
+            </div>
+
+            {!created && (
+              <div className="rounded-lg bg-slate-50 px-3 py-2.5 text-xs text-ink/70">
+                <p className="mb-1 font-bold text-brand-dark">Sebelum menyimpan</p>
+                <ul className="list-disc space-y-0.5 pl-4">
+                  <li><b>Kode permanen.</b> Kode tercetak di link pendaftaran (?ref=), jadi tidak bisa diubah atau dihapus. Affiliate yang keliru hanya bisa dinonaktifkan.</li>
+                  <li><b>Hanya membuat affiliate baru.</b> Kode yang sudah ada dilewati; datanya tidak diubah. Untuk mengubah, pakai tombol Ubah.</li>
+                  {s.error > 0 && <li><b>{s.error} baris ditolak tidak ikut disimpan.</b> Perbaiki di file lalu impor ulang file yang sama — baris yang sudah tersimpan otomatis dilewati.</li>}
+                  <li><b>Tidak ada pesan otomatis.</b> Sistem tidak mengirim email/WhatsApp ke affiliate. Setelah simpan, unduh daftar link lalu kirim ke masing-masing.</li>
+                  {withCommission > 0 && <li><b>{withCommission} affiliate memakai komisi</b> nominal tetap per peserta lunas; jumlahnya masuk total komisi yang dibayarkan keuangan.</li>}
+                  {withParent > 0 && <li><b>{withParent} affiliate punya induk.</b> Induknya dapat melihat perolehan mereka di dashboard induk.</li>}
+                </ul>
+              </div>
+            )}
+
+            <div className="max-h-[420px] overflow-auto rounded-lg border border-slate-200">
+              <table className="w-full min-w-[760px] text-xs">
+                <thead className="sticky top-0 bg-slate-50">
+                  <tr className="border-b border-slate-200 text-left text-[10px] uppercase tracking-wide text-ink/45">
+                    <th className="px-2 py-1.5">Baris</th><th className="px-2 py-1.5">Kode</th><th className="px-2 py-1.5">Nama</th>
+                    <th className="px-2 py-1.5">Berlaku untuk</th><th className="px-2 py-1.5">Induk</th><th className="px-2 py-1.5">Imbalan</th><th className="px-2 py-1.5">Hasil</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {check.rows.map((r) => {
+                    const st = created && r.status === "create" ? { text: "Tersimpan", cls: "text-brand-700" } : IMPORT_STATUS[r.status];
+                    return (
+                      <tr key={r.index} className={"border-b border-slate-100 align-top " + (r.status === "error" ? "bg-orange/5" : "")}>
+                        <td className="px-2 py-1.5 text-ink/45">{r.line}</td>
+                        <td className="px-2 py-1.5 font-mono font-bold">{r.code || "—"}</td>
+                        <td className="px-2 py-1.5">{r.name || "—"}</td>
+                        <td className="px-2 py-1.5">{r.status === "error" && !r.eventSlug ? "—" : r.eventSlug ? eventTitle(r.eventSlug) : "Semua event"}</td>
+                        <td className="px-2 py-1.5 font-mono">{r.parentCode || "—"}</td>
+                        <td className="px-2 py-1.5">{r.commissionAmount > 0 ? formatRupiah(r.commissionAmount) + "/lunas" : "Pelacakan"}</td>
+                        <td className="px-2 py-1.5">
+                          <span className={"font-bold " + st.cls}>{st.text}</span>
+                          {r.error && <span className="block text-orange">{r.error}</span>}
+                          {r.warnings.map((w, i) => <span key={i} className="block text-ink/50">{w}</span>)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {error && <p className="rounded-lg bg-orange/10 px-3 py-2 text-sm text-orange">{error}</p>}
+            {created ? (
+              created.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={downloadLinks} className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">Unduh daftar link ({created.length})</button>
+                  <span className="text-xs text-ink/50">Berisi link dashboard pribadi tiap affiliate — kirim ke masing-masing, jangan dibagikan ke grup.</span>
+                </div>
+              )
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" disabled={busy || s.create === 0} onClick={save} className="rounded-lg bg-brand px-4 py-2 text-sm font-bold text-white hover:bg-brand-600 disabled:opacity-50">
+                  {busy ? "Menyimpan…" : s.create === 0 ? "Tidak ada yang bisa dibuat" : "Simpan " + s.create + " affiliate"}
+                </button>
+                <button type="button" onClick={onClose} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-ink/70 hover:bg-slate-50">Batal</button>
+              </div>
+            )}
+          </div>
+        );
+      }
+
       function AffiliatePanel({ events, onShowRegistrations }) {
         const [items, setItems] = useState([]);
         const [loading, setLoading] = useState(true);
@@ -1846,7 +2040,32 @@
         const [busyId, setBusyId] = useState(null);
         const [copiedId, setCopiedId] = useState(null);
         const [network, setNetwork] = useState(""); // "" = semua; kode = affiliate itu + seluruh mitranya
+        const [importing, setImporting] = useState(null); // { fileName, rows, check } — pratinjau impor CSV
+        const [importBusy, setImportBusy] = useState(false);
+        const [importError, setImportError] = useState("");
+        const fileRef = useRef(null);
         const eventTitle = (slug) => { const ev = events.find((e) => e.slug === slug); return ev ? ev.title : slug; };
+
+        async function onImportFile(e) {
+          const file = e.target.files && e.target.files[0];
+          e.target.value = ""; // supaya file yang sama bisa dipilih lagi setelah diperbaiki
+          if (!file) return;
+          setImportError(""); setImporting(null);
+          if (/\.(xlsx?|numbers|ods)$/i.test(file.name)) {
+            setImportError("File " + file.name + " bukan CSV. Di Excel/Google Sheets pilih Simpan sebagai / Download → CSV, lalu unggah file .csv-nya.");
+            return;
+          }
+          const parsed = affiliateRowsFromCsv(await file.text());
+          if (parsed.error) { setImportError(parsed.error); return; }
+          setImportBusy(true);
+          const res = await apiFetch("/api/admin/affiliates/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dryRun: true, rows: parsed.rows }) });
+          const body = await res.json().catch(() => ({}));
+          setImportBusy(false);
+          if (res.status === 401) { location.reload(); return; }
+          if (!res.ok) { setImportError(body.error || "Gagal memeriksa file."); return; }
+          setEditing(null);
+          setImporting({ fileName: file.name, rows: parsed.rows, check: { summary: body.summary, rows: body.rows } });
+        }
 
         async function load() {
           setLoading(true); setError("");
@@ -1906,11 +2125,29 @@
                 <h2 className="text-lg font-extrabold text-brand-dark">Affiliate <span className="text-ink/40">({items.length})</span></h2>
                 <p className="text-xs text-ink/50">{totalParticipants} peserta lewat affiliate · total komisi {formatRupiah(totalCommission)}</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {items.length > 0 && <button onClick={ekspor} className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Ekspor CSV</button>}
-                {!editing && <button onClick={() => setEditing("new")} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-600">+ Affiliate Baru</button>}
+                <button onClick={() => downloadAffiliateTemplate(events)} title="Unduh template CSV untuk membuat banyak affiliate sekaligus"
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-slate-50">Template CSV</button>
+                <button onClick={() => fileRef.current && fileRef.current.click()} disabled={importBusy}
+                  className="rounded-lg border border-brand-100 px-3 py-1.5 text-xs font-semibold text-brand-dark hover:bg-brand-50 disabled:opacity-50">{importBusy ? "Memeriksa…" : "Impor CSV"}</button>
+                <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" className="hidden" onChange={onImportFile} />
+                {!editing && <button onClick={() => { setImporting(null); setEditing("new"); }} className="rounded-lg bg-brand px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-600">+ Affiliate Baru</button>}
               </div>
             </div>
+
+            {importError && (
+              <div className="flex items-start justify-between gap-3 rounded-lg bg-orange/10 px-3 py-2 text-sm text-orange">
+                <p>{importError}</p>
+                <button onClick={() => setImportError("")} className="shrink-0 text-xs font-semibold hover:underline">Tutup</button>
+              </div>
+            )}
+
+            {importing && (
+              <AffiliateImportPanel key={importing.fileName + importing.rows.length} fileName={importing.fileName} rows={importing.rows} initialCheck={importing.check}
+                events={events} waLink={waLink} onClose={() => setImporting(null)}
+                onCreated={(created) => setItems((list) => created.concat(list.filter((x) => !created.some((c) => c.id === x.id))))} />
+            )}
 
             {editing && (
               <AffiliateForm initial={editing === "new" ? {} : editing} events={events} affiliates={items}
